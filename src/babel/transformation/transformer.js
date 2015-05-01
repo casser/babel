@@ -1,4 +1,5 @@
 import TransformerPass from "./transformer-pass";
+import * as messages from "../messages";
 import isFunction from "lodash/lang/isFunction";
 import traverse from "../traversal";
 import isObject from "lodash/lang/isObject";
@@ -14,7 +15,7 @@ import each from "lodash/collection/each";
  */
 
 export default class Transformer {
-  constructor(transformerKey: key, transformer: Object, opts: Object) {
+  constructor(transformerKey: string, transformer: Object) {
     transformer = assign({}, transformer);
 
     var take = function (key) {
@@ -24,19 +25,34 @@ export default class Transformer {
     };
 
     this.manipulateOptions = take("manipulateOptions");
+    this.shouldVisit       = take("shouldVisit");
     this.metadata          = take("metadata") || {};
     this.parser            = take("parser");
-    this.check             = take("check");
     this.post              = take("post");
     this.pre               = take("pre");
+
+    //
 
     if (this.metadata.stage != null) {
       this.metadata.optional = true;
     }
 
+    //
+
     this.handlers = this.normalize(transformer);
-    this.opts     ||= {};
     this.key      = transformerKey;
+
+    //
+
+    if (!this.shouldVisit) {
+      var types = Object.keys(this.handlers);
+      this.shouldVisit = function (node) {
+        for (var i = 0; i < types.length; i++) {
+          if (node.type === types[i]) return true;
+        }
+        return false;
+      };
+    }
   }
 
   normalize(transformer: Object): Object {
@@ -71,7 +87,7 @@ export default class Transformer {
   buildPass(file: File): TransformerPass {
     // validate Transformer instance
     if (!(file instanceof File)) {
-      throw new TypeError(`Transformer ${this.key} is resolving to a different Babel version to what is doing the actual transformation...`);
+      throw new TypeError(messages.get("transformerNotFile", this.key));
     }
 
     return new TransformerPass(file, this);

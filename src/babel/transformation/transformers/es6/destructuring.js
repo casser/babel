@@ -1,7 +1,7 @@
 import * as messages from "../../../messages";
 import * as t from "../../../types";
 
-export var check = t.isPattern;
+export var shouldVisit = t.isPattern;
 
 export function ForOfStatement(node, parent, scope, file) {
   var left = node.left;
@@ -78,11 +78,11 @@ exports.Function = function (node, parent, scope, file) {
 
   if (!hasDestructuring) return;
 
-  file.checkNode(nodes);
   t.ensureBlock(node);
 
   var block = node.body;
   block.body = nodes.concat(block.body);
+  return node;
 };
 
 export function CatchClause(node, parent, scope, file) {
@@ -111,7 +111,7 @@ export function ExpressionStatement(node, parent, scope, file) {
   var expr = node.expression;
   if (expr.type !== "AssignmentExpression") return;
   if (!t.isPattern(expr.left)) return;
-  if (file.isConsequenceExpressionStatement(node)) return;
+  if (this.isCompletionRecord()) return;
 
   var destructuring = new DestructuringTransformer({
     operator: expr.operator,
@@ -200,7 +200,7 @@ export function VariableDeclaration(node, parent, scope, file) {
 
     for (i = 0; i < nodes.length; i++) {
       node = nodes[i];
-      declar ||= t.variableDeclaration(node.kind, []);
+      declar = declar || t.variableDeclaration(node.kind, []);
 
       if (!t.isVariableDeclaration(node) && declar.kind !== node.kind) {
         throw file.errorWithNode(node, messages.get("invalidParentForThisNode"));

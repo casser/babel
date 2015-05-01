@@ -20,27 +20,32 @@ var visitor = {
 
 var wrap = function (state, method, id, scope) {
   if (state.selfReference) {
-    var templateName = "property-method-assignment-wrapper";
-    if (method.generator) templateName += "-generator";
-    var template = util.template(templateName, {
-      FUNCTION: method,
-      FUNCTION_ID: id,
-      FUNCTION_KEY: scope.generateUidIdentifier(id.name)
-    });
-    template.callee._skipModulesRemap = true;
+    if (scope.hasBinding(id.name)) {
+      // we can just munge the local binding
+      scope.rename(id.name);
+    } else {
+      // need to add a wrapper since we can't change the references
+      var templateName = "property-method-assignment-wrapper";
+      if (method.generator) templateName += "-generator";
+      var template = util.template(templateName, {
+        FUNCTION: method,
+        FUNCTION_ID: id,
+        FUNCTION_KEY: scope.generateUidIdentifier(id.name)
+      });
+      template.callee._skipModulesRemap = true;
 
-    // shim in dummy params to retain function arity, if you try to read the
-    // source then you'll get the original since it's proxied so it's all good
-    var params = template.callee.body.body[0].params;
-    for (var i = 0, len = getFunctionArity(method); i < len; i++) {
-      params.push(scope.generateUidIdentifier("x"));
+      // shim in dummy params to retain function arity, if you try to read the
+      // source then you'll get the original since it's proxied so it's all good
+      var params = template.callee.body.body[0].params;
+      for (var i = 0, len = getFunctionArity(method); i < len; i++) {
+        params.push(scope.generateUidIdentifier("x"));
+      }
+
+      return template;
     }
-
-    return template;
-  } else {
-    method.id = id;
-    return method;
   }
+
+  method.id = id;
 };
 
 var visit = function (node, name, scope) {
@@ -82,7 +87,7 @@ var visit = function (node, name, scope) {
       // so we can safely just set the id and move along as it shadows the
       // bound function id
     }
-  } else {
+  } else if (state.outerDeclar || scope.hasGlobal(name)) {
     scope.traverse(node, visitor, state);
   }
 
@@ -96,7 +101,7 @@ export function custom(node, id, scope) {
 
 export function property(node, file, scope) {
   var key = t.toComputedKey(node, node.key);
-  if (!t.isLiteral(key)) return node; // we can't set a function id with this
+  if (!t.isLiteral(key)) return; // we can't set a function id with this
 
   var name = t.toIdentifier(key.value);
   if (name === "eval" || name === "arguments") name = "_" + name;
@@ -104,12 +109,12 @@ export function property(node, file, scope) {
 
   var method = node.value;
   var state  = visit(method, name, scope);
-  node.value = wrap(state, method, id, scope);
+  node.value = wrap(state, method, id, scope) || method;
 }
 
 export function bare(node, parent, scope) {
   // has an `id` so we don't need to infer one
-  if (node.id) return node;
+  if (node.id) return;
 
   var id;
   if (t.isProperty(parent) && parent.kind === "init" && (!parent.computed || t.isLiteral(parent.key))) {
@@ -118,8 +123,17 @@ export function bare(node, parent, scope) {
   } else if (t.isVariableDeclarator(parent)) {
     // var foo = function () {};
     id = parent.id;
+
+    if (t.isIdentifier(id)) {
+      var bindingInfo = scope.parent.getBinding(id.name);
+      if (bindingInfo && bindingInfo.constant && scope.getBinding(id.name) === bindingInfo) {
+        // always going to reference this method
+        node.id = id;
+        return;
+      }
+    }
   } else {
-    return node;
+    return;
   }
 
   var name;

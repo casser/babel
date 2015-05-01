@@ -1,8 +1,12 @@
 import * as t from "../../../types";
 
-function statementList(key, node, file) {
-  for (var i = 0; i < node[key].length; i++) {
-    var func = node[key][i];
+function statementList(key, path, file) {
+  var paths = path.get(key);
+
+  for (var i = 0; i < paths.length; i++) {
+    var path = paths[i];
+
+    var func = path.node;
     if (!t.isFunctionDeclaration(func)) continue;
 
     var declar = t.variableDeclaration("let", [
@@ -15,10 +19,23 @@ function statementList(key, node, file) {
     // todo: name this
     func.id = null;
 
-    node[key][i] = declar;
-
-    file.checkNode(declar);
+    path.replaceWith(declar);
   }
+}
+
+export function shouldVisit(node) {
+  var body;
+  if (node.type === "SwitchCase") {
+    body = node.consequent;
+  } else if (node.type === "BlockStatement") {
+    body = node.body;
+  }
+  if (body) {
+    for (var i = 0; i < body.length; i++) {
+      if (body[i].type === "FunctionDeclaration") return true;
+    }
+  }
+  return false;
 }
 
 export function BlockStatement(node, parent, scope, file) {
@@ -26,9 +43,9 @@ export function BlockStatement(node, parent, scope, file) {
     return;
   }
 
-  statementList("body", node, file);
+  statementList("body", this, file);
 }
 
 export function SwitchCase(node, parent, scope, file) {
-  statementList("consequent", node, file);
+  statementList("consequent", this, file);
 }

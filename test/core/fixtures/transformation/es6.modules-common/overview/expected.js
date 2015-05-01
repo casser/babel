@@ -1,7 +1,5 @@
 "use strict";
 
-var _interopRequireWildcard = function (obj) { return obj && obj.__esModule ? obj : { "default": obj }; };
-
 Object.defineProperty(exports, "__esModule", {
   value: true
 });
@@ -14,11 +12,11 @@ require("./directory/foo-bar");
 
 var _foo = require("foo2");
 
-var _foo2 = _interopRequireWildcard(_foo);
+var _foo2 = babelHelpers.interopRequireDefault(_foo);
 
 var _import = require("foo3");
 
-var foo2 = _interopRequireWildcard(_import);
+var foo2 = babelHelpers.interopRequireWildcard(_import);
 
 var _bar = require("foo4");
 

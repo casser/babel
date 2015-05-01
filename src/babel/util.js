@@ -18,6 +18,7 @@ import each from "lodash/collection/each";
 import has from "lodash/object/has";
 import fs from "fs";
 import * as t from "./types";
+import slash from "slash";
 
 export { inherits, inspect } from "util";
 
@@ -42,6 +43,9 @@ export function resolve(loc: string) {
 var relativeMod;
 
 export function resolveRelative(loc: string) {
+  // we're in the browser, probably
+  if (typeof Module === "object") return null;
+
   if (!relativeMod) {
     relativeMod = new Module;
     relativeMod.paths = Module._nodeModulePaths(process.cwd());
@@ -84,7 +88,7 @@ export function arrayify(val: any, mapFn?: Function): Array {
     return val;
   }
 
-  throw new TypeError("illegal type for arrayify");
+  return [val];
 }
 
 export function booleanify(val: any): boolean {
@@ -94,6 +98,7 @@ export function booleanify(val: any): boolean {
 }
 
 export function shouldIgnore(filename, ignore, only) {
+  filename = slash(filename);
   if (only.length) {
     for (var i = 0; i < only.length; i++) {
       if (only[i].test(filename)) return false;

@@ -1,6 +1,6 @@
 {
-  "experimental": true,
-  "playground": true,
-  "loose": true,
-  "blacklist": ["es6.tailCall"]
+  "stage": 0,
+  "loose": ["all"],
+  "blacklist": ["es6.tailCall"],
+  "optional": ["optimisation.flow.forOf"]
 }

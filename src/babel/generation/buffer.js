@@ -70,14 +70,14 @@ export default class Buffer {
   }
 
   newline(i, removeLast) {
-    if (this.format.compact) return;
+    if (this.format.compact || this.format.retainLines) return;
 
     if (this.format.concise) {
       this.space();
       return;
     }
 
-    removeLast ||= false;
+    removeLast = removeLast || false;
 
     if (isNumber(i)) {
       i = Math.min(2, i);

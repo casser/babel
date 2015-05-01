@@ -13,13 +13,11 @@
 })(this, function (exports, _foo, _fooBar, _directoryFooBar) {
   "use strict";
 
-  var _interopRequire = function (obj) { return obj && obj.__esModule ? obj["default"] : obj; };
-
   Object.defineProperty(exports, "__esModule", {
     value: true
   });
 
-  var _foo2 = _interopRequire(_foo);
+  var _foo2 = babelHelpers.interopRequire(_foo);
 
   exports.test = test;
   var test2 = 5;

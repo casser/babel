@@ -10,9 +10,13 @@ export default function (exports, opts) {
     return t.assignmentExpression("=", left, right);
   };
 
+  exports.shouldVisit = function (node) {
+    return node.operator && (node.operator === opts.operator || node.operator === opts.operator + "=");
+  };
+
   exports.ExpressionStatement = function (node, parent, scope, file) {
     // hit the `AssignmentExpression` one below
-    if (file.isConsequenceExpressionStatement(node)) return;
+    if (this.isCompletionRecord()) return;
 
     var expr = node.expression;
     if (!isAssignment(expr)) return;

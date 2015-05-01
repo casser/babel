@@ -1,4 +1,6 @@
 import TraversalContext from "./context";
+import explode from "./explode";
+import * as messages from "../messages";
 import includes from "lodash/collection/includes";
 import * as t from "../types";
 
@@ -7,13 +9,12 @@ export default function traverse(parent, opts, scope, state, parentPath) {
 
   if (!opts.noScope && !scope) {
     if (parent.type !== "Program" && parent.type !== "File") {
-      throw new Error(`Must pass a scope and parentPath unless traversing a Program/File got a ${parent.type} node`);
+      throw new Error(messages.get("traverseNeedsParent", parent.type));
     }
   }
 
   if (!opts) opts = {};
-  if (!opts.enter) opts.enter = function () { };
-  if (!opts.exit) opts.exit = function () { };
+  traverse.verify(opts);
 
   // array of nodes
   if (Array.isArray(parent)) {
@@ -24,6 +25,43 @@ export default function traverse(parent, opts, scope, state, parentPath) {
     traverse.node(parent, opts, scope, state, parentPath);
   }
 }
+
+/**
+ * Quickly iterate over some traversal options and validate them.
+ */
+
+traverse.verify = function (opts) {
+  if (opts._verified) return;
+
+  if (typeof opts === "function") {
+    throw new Error(messages.get("traverseVerifyRootFunction"));
+  }
+
+  if (!opts.enter) opts.enter = function () { };
+  if (!opts.exit) opts.exit = function () { };
+  if (!opts.shouldSkip) opts.shouldSkip = function () { return false; };
+
+  for (var key in opts) {
+    // it's all good
+    if (key === "blacklist") continue;
+
+    var opt = opts[key];
+
+    if (typeof opt === "function") {
+      // it's all good, it's fine for this key to be a function
+      if (key === "enter" || key === "exit" || key === "shouldSkip") continue;
+
+      throw new Error(messages.get("traverseVerifyVisitorFunction", key));
+    } else if (typeof opt === "object") {
+      for (var key2 in opt) {
+        if (key2 === "enter" || key2 === "exit") continue;
+        throw new Error(messages.get("traverseVerifyVisitorProperty", key, key2));
+      }
+    }
+  }
+
+  opts._verified = true;
+};
 
 traverse.node = function (node, opts, scope, state, parentPath) {
   var keys = t.VISITOR_KEYS[node.type];
@@ -39,7 +77,7 @@ traverse.node = function (node, opts, scope, state, parentPath) {
 
 const CLEAR_KEYS = [
   "trailingComments", "leadingComments", "extendedRange",
-  "_declarations", "_scopeInfo" ,"_paths",
+  "_scopeInfo" ,"_paths",
   "tokens", "range", "start", "end", "loc", "raw"
 ];
 
@@ -75,22 +113,7 @@ traverse.removeProperties = function (tree) {
   return tree;
 };
 
-traverse.explode = function (obj) {
-  for (var type in obj) {
-    var fns = obj[type];
-    if (typeof fns === "function") {
-      obj[type] = fns = { enter: fns };
-    }
-
-    var aliases = t.FLIPPED_ALIAS_KEYS[type];
-    if (aliases) {
-      for (var i = 0; i < aliases.length; i++) {
-        obj[aliases[i]] ||= fns;
-      }
-    }
-  }
-  return obj;
-};
+traverse.explode = explode;
 
 function hasBlacklistedType(node, parent, scope, state) {
   if (node.type === state.type) {

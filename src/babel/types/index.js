@@ -17,7 +17,7 @@ function registerType(type: string, skipAliasCheck?: boolean) {
   };
 
   t[`assert${type}`] = function (node, opts) {
-    opts ||= {};
+    opts = opts || {};
     if (!is(node, opts)) {
       throw new Error(`Expected type ${JSON.stringify(type)} with option ${JSON.stringify(opts)}`);
     }
@@ -42,7 +42,7 @@ each(t.VISITOR_KEYS, function (keys, type) {
 
 each(t.ALIAS_KEYS, function (aliases, type) {
   each(aliases, function (alias) {
-    var types = t.FLIPPED_ALIAS_KEYS[alias] ||= [];
+    var types = t.FLIPPED_ALIAS_KEYS[alias] = t.FLIPPED_ALIAS_KEYS[alias] || [];
     types.push(type);
   });
 });
@@ -78,7 +78,11 @@ export function isType(nodeType, targetType) {
   if (nodeType === targetType) return true;
 
   var aliases = t.FLIPPED_ALIAS_KEYS[targetType];
-  if (aliases) return aliases.indexOf(nodeType) > -1;
+  if (aliases) {
+    for (var alias of (aliases: Array)) {
+      if (nodeType === alias) return true;
+    }
+  }
 
   return false;
 }
@@ -118,9 +122,7 @@ each(t.BUILDER_KEYS, function (keys, type) {
 export function shallowEqual(actual: Object, expected: Object): boolean {
   var keys = Object.keys(expected);
 
-  for (var i = 0; i < keys.length; i++) {
-    var key = keys[i];
-
+  for (var key of (keys: Array)) {
     if (actual[key] !== expected[key]) {
       return false;
     }
@@ -282,12 +284,11 @@ export function inheritsComments(child: Object, parent: Object): Object {
 export function inherits(child: Object, parent: Object): Object {
   if (!child || !parent) return child;
 
-  child._declarations = parent._declarations;
-  child._scopeInfo    = parent._scopeInfo;
-  child.range         = parent.range;
-  child.start         = parent.start;
-  child.loc           = parent.loc;
-  child.end           = parent.end;
+  child._scopeInfo = parent._scopeInfo;
+  child.range      = parent.range;
+  child.start      = parent.start;
+  child.loc        = parent.loc;
+  child.end        = parent.end;
 
   child.typeAnnotation = parent.typeAnnotation;
   child.returnType     = parent.returnType;

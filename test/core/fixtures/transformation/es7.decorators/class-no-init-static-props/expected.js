@@ -10,9 +10,9 @@ var Foo = (function () {
   babelHelpers.createDecoratedClass(Foo, null, [{
     key: "foo",
     decorators: [bar],
-    initializer: function () {},
+    initializer: null,
     enumerable: true
   }], null, _staticInitializers);
-  Foo.foo = _staticInitializers.foo.call(Foo);
+  babelHelpers.defineDecoratedPropertyDescriptor(Foo, "foo", _staticInitializers);
   return Foo;
 })();

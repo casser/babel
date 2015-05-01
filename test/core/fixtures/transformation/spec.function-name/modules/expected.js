@@ -2,7 +2,7 @@
 
 var _events2 = require("events");
 
-var _events3 = babelHelpers.interopRequireWildcard(_events2);
+var _events3 = babelHelpers.interopRequireDefault(_events2);
 
 var Template = (function () {
   function Template() {
@@ -11,19 +11,9 @@ var Template = (function () {
 
   babelHelpers.createClass(Template, [{
     key: "events",
-    value: (function (_events) {
-      function events() {
-        return _events.apply(this, arguments);
-      }
-
-      events.toString = function () {
-        return _events.toString();
-      };
-
-      return events;
-    })(function () {
+    value: function events() {
       return _events3["default"];
-    })
+    }
   }]);
   return Template;
 })();

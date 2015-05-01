@@ -8,57 +8,34 @@ import traverse from "../traversal";
 
 export default class TransformerPass {
   constructor(file: File, transformer: Transformer) {
-    this.transformer = transformer;
-    this.shouldRun   = !transformer.check;
-    this.handlers    = transformer.handlers;
-    this.file        = file;
-    this.ran         = false;
+    this.shouldTransform = !transformer.shouldVisit;
+    this.transformer     = transformer;
+    this.handlers        = transformer.handlers;
+    this.skipKey         = transformer.skipKey;
+    this.file            = file;
+    this.ran             = false;
   }
 
   canTransform(): boolean {
-    var transformer = this.transformer;
-
-    var opts = this.file.opts;
-    var key  = transformer.key;
-
-    // internal
-    if (key[0] === "_") return true;
-
-    // blacklist
-    var blacklist = opts.blacklist;
-    if (blacklist.length && includes(blacklist, key)) return false;
-
-    // whitelist
-    var whitelist = opts.whitelist;
-    if (whitelist) return includes(whitelist, key);
-
-    // stage
-    var stage = transformer.metadata.stage;
-    if (stage != null && stage >= opts.stage) return true;
-
-    // optional
-    if (transformer.metadata.optional && !includes(opts.optional, key)) return false;
-
-    return true;
+    return this.file.pipeline.canTransform(this.transformer, this.file.opts);
   }
 
-  checkNode(node: Object): boolean {
-    var check = this.transformer.check;
-    if (check) {
-      return this.shouldRun = check(node);
-    } else {
-      return true;
-    }
+  checkPath(path: TraversalPath): boolean {
+    if (this.shouldTransform || this.ran) return;
+
+    this.shouldTransform = this.transformer.shouldVisit(path.node);
   }
 
   transform() {
-    if (!this.shouldRun) return;
+    if (!this.shouldTransform) return;
 
     var file = this.file;
 
-    file.log.debug(`Running transformer ${this.transformer.key}`);
+    file.log.debug(`Start transformer ${this.transformer.key}`);
 
     traverse(file.ast, this.handlers, file.scope, file);
+
+    file.log.debug(`Finish transformer ${this.transformer.key}`);
 
     this.ran = true;
   }

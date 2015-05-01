@@ -1,4 +1,3 @@
-import "../../polyfill";
 import sourceMapSupport from "source-map-support";
 import * as registerCache from "./cache";
 import resolveRc from "../../tools/resolve-rc";
@@ -7,6 +6,7 @@ import * as babel from "../node";
 import each from "lodash/collection/each";
 import * as util from  "../../util";
 import fs from "fs";
+import slash from "slash";
 
 sourceMapSupport.install({
   handleUncaughtExceptions: false,
@@ -31,8 +31,10 @@ var cache = registerCache.get();
 //
 
 var transformOpts = {};
-var ignoreRegex   = /node_modules/;
-var onlyRegex;
+
+var ignore;
+var only;
+
 var oldHandlers   = {};
 var maps          = {};
 
@@ -76,7 +78,11 @@ var compile = function (filename) {
 };
 
 var shouldIgnore = function (filename) {
-  return (ignoreRegex && ignoreRegex.test(filename)) || (onlyRegex && !onlyRegex.test(filename));
+  if (!ignore && !only) {
+    return /node_modules/.test(filename);
+  } else {
+    return util.shouldIgnore(filename, ignore || [], only || []);
+  }
 };
 
 var istanbulMonkey = {};
@@ -142,8 +148,8 @@ var hookExtensions = function (_exts) {
 hookExtensions(util.canCompile.EXTENSIONS);
 
 export default function (opts = {}) {
-  if (opts.only != null) onlyRegex = util.regexify(opts.only);
-  if (opts.ignore != null) ignoreRegex = util.regexify(opts.ignore);
+  if (opts.only != null) only = util.arrayify(opts.only, util.regexify);
+  if (opts.ignore != null) ignore = util.arrayify(opts.ignore, util.regexify);
 
   if (opts.extensions) hookExtensions(util.arrayify(opts.extensions));
 

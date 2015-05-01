@@ -20,7 +20,7 @@ export default class CommonJSFormatter extends DefaultFormatter {
       if (this.file.isLoose("es6.modules")) templateName += "-loose";
       var declar = util.template(templateName, true);
       declar._blockHoist = 3;
-      file.ast.program.body.unshift(declar);
+      file.path.unshiftContainer("body", [declar]);
     }
   }
 
@@ -55,7 +55,7 @@ export default class CommonJSFormatter extends DefaultFormatter {
         var uid = this.scope.generateUidBasedOnNode(node, "import");
 
         nodes.push(t.variableDeclaration("var", [
-          t.variableDeclarator(uid, t.callExpression(this.file.addHelper("interop-require-wildcard"), [ref]))
+          t.variableDeclarator(uid, t.callExpression(this.file.addHelper("interop-require-default"), [ref]))
         ]));
 
         this.internalRemap[variableName.name] = t.memberExpression(uid, t.identifier("default"));
@@ -114,7 +114,7 @@ export default class CommonJSFormatter extends DefaultFormatter {
       uid = this.scope.generateUidBasedOnNode(node, "import");
     }
 
-    uid ||= node.specifiers[0].local;
+    uid = uid || node.specifiers[0].local;
 
     var declar = t.variableDeclaration("var", [
       t.variableDeclarator(uid, call)

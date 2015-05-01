@@ -13,8 +13,6 @@
 })(this, function (exports) {
   "use strict";
 
-  var _classCallCheck = function (instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } };
-
   Object.defineProperty(exports, "__esModule", {
     value: true
   });
@@ -39,7 +37,7 @@
   function foo7() {}
 
   var foo8 = function foo8() {
-    _classCallCheck(this, foo8);
+    babelHelpers.classCallCheck(this, foo8);
   };
 
   exports.foo8 = foo8;

@@ -11,7 +11,7 @@ import * as t from "../../../types";
 
 const PROPERTY_COLLISION_METHOD_NAME = "__initializeProperties";
 
-export var check = t.isClass;
+export var shouldVisit = t.isClass;
 
 export function ClassDeclaration(node, parent, scope, file) {
   return t.variableDeclaration("let", [
@@ -36,6 +36,22 @@ var collectPropertyReferencesVisitor = {
     }
   }
 };
+
+var constructorVisitor = traverse.explode({
+  ThisExpression: {
+    enter(node, parent, scope, ref) {
+      return ref;
+    }
+  },
+
+  Function: {
+    enter(node) {
+      if (!node.shadow) {
+        this.skip();
+      }
+    }
+  }
+});
 
 var verifyConstructorVisitor = traverse.explode({
   MethodDefinition: {
@@ -229,7 +245,7 @@ class ClassTransformer {
       if (body.length === 1) return t.toExpression(body[0]);
     } else {
       // infer class name if this is a nameless class expression
-      constructor = nameMethod.bare(constructor, this.parent, this.scope);
+      constructor = nameMethod.bare(constructor, this.parent, this.scope) || constructor;
 
       body.unshift(t.variableDeclaration("var", [
         t.variableDeclarator(classRef, constructor)
@@ -331,7 +347,7 @@ class ClassTransformer {
       if (this.isNativeSuper) helperName = "class-super-native-constructor-call";
       constructorBody.body.push(util.template(helperName, {
         NATIVE_REF: this.nativeSuperRef,
-        CLASS_NAME: className,
+        CLASS_NAME: this.classRef,
         SUPER_NAME: this.superName
       }, true));
     }
@@ -534,39 +550,47 @@ class ClassTransformer {
 
     if (node.decorators) {
       var body = [];
-      if (node.value) body.push(t.returnStatement(node.value));
-      node.value = t.functionExpression(null, [], t.blockStatement(body));
+      if (node.value) {
+        body.push(t.returnStatement(node.value));
+        node.value = t.functionExpression(null, [], t.blockStatement(body));
+      } else {
+        node.value = t.literal(null);
+      }
       this.pushToMap(node, true, "initializer");
 
+      var initializers;
+      var body;
+      var target;
       if (node.static) {
-        this.staticPropBody.push(util.template("call-static-decorator", {
-          INITIALIZERS: this.staticInitializersId ||= this.scope.generateUidIdentifier("staticInitializers"),
-          CONSTRUCTOR:  this.classRef,
-          KEY:          node.key,
-        }, true));
+        initializers = this.staticInitializersId = this.staticInitializersId || this.scope.generateUidIdentifier("staticInitializers");
+        body = this.staticPropBody;
+        target = this.classRef;
       } else {
-        this.instancePropBody.push(util.template("call-instance-decorator", {
-          INITIALIZERS: this.instanceInitializersId ||= this.scope.generateUidIdentifier("instanceInitializers"),
-          KEY:          node.key
-        }, true));
+        initializers = this.instanceInitializersId = this.instanceInitializersId || this.scope.generateUidIdentifier("instanceInitializers");
+        body = this.instancePropBody;
+        target = t.thisExpression();
       }
+
+      body.push(t.expressionStatement(
+        t.callExpression(this.file.addHelper("define-decorated-property-descriptor"), [
+          target,
+          t.literal(node.key.name),
+          initializers
+        ])
+      ));
     } else {
-      if (!node.static && node.value) {
+      if (!node.value && !node.decorators) return;
+
+      if (node.static) {
+        // can just be added to the static map
+        this.pushToMap(node, true);
+      } else if (node.value) {
         // add this to the instancePropBody which will be added after the super call in a derived constructor
         // or at the start of a constructor for a non-derived constructor
         this.instancePropBody.push(t.expressionStatement(
           t.assignmentExpression("=", t.memberExpression(t.thisExpression(), node.key), node.value)
         ));
-
-        node.value = null;
       }
-
-      if (!node.value) {
-        node.value = t.identifier("undefined");
-      }
-
-      // can just be added to the static map
-      this.pushToMap(node, true);
     }
   }
 
@@ -579,6 +603,10 @@ class ClassTransformer {
     var fnPath = path.get("value");
     if (fnPath.scope.hasOwnBinding(this.classRef.name)) {
       fnPath.scope.rename(this.classRef.name);
+    }
+
+    if (this.isNativeSuper) {
+      fnPath.traverse(constructorVisitor, this.nativeSuperRef);
     }
 
     var construct = this.constructor;

@@ -26,10 +26,11 @@ export function isReferenced(node: Object, parent: Object): boolean {
       return false;
 
     // yes: { [NODE]: "" }
+    // yes: { NODE }
     // no: { NODE: "" }
     case "Property":
       if (parent.key === node) {
-        return parent.computed;
+        return parent.computed || parent.shorthand;
       }
 
     // no: var NODE = init;
@@ -42,8 +43,7 @@ export function isReferenced(node: Object, parent: Object): boolean {
     case "ArrowFunctionExpression":
     case "FunctionDeclaration":
     case "FunctionExpression":
-      for (var i = 0; i < parent.params.length; i++) {
-        var param = parent.params[i];
+      for (var param of (parent.params: Array)) {
         if (param === node) return false;
       }
 

@@ -1,4 +1,5 @@
 import includes from "lodash/collection/includes";
+import explode from "./explode";
 import traverse from "./index";
 import defaults from "lodash/object/defaults";
 import * as messages from "../messages";
@@ -39,8 +40,13 @@ var functionVariableVisitor = {
 
 var programReferenceVisitor = {
   enter(node, parent, scope, state) {
-    if (t.isReferencedIdentifier(node, parent) && !scope.hasBinding(node.name)) {
-      state.addGlobal(node);
+    if (t.isReferencedIdentifier(node, parent)) {
+      var bindingInfo = scope.getBinding(node.name);
+      if (bindingInfo) {
+        bindingInfo.reference();
+      } else {
+        state.addGlobal(node);
+      }
     } else if (t.isLabeledStatement(node)) {
       state.addGlobal(node);
     } else if (t.isAssignmentExpression(node)) {
@@ -63,6 +69,67 @@ var blockVariableVisitor = {
     }
   }
 };
+
+var renameVisitor = explode({
+  Identifier(node, parent, scope, state) {
+    if (this.isReferenced() && node.name === state.oldName) {
+      if (this.parentPath.isProperty() && this.key === "key" && parent.shorthand) {
+        var value = t.identifier(state.newName);;
+
+        if (parent.value === state.binding) {
+          state.info.identifier = state.binding = value;
+        }
+
+        parent.shorthand = false;
+        parent.value = value;
+        parent.key = t.identifier(state.oldName);
+      } else {
+        node.name = state.newName;
+      }
+    }
+  },
+
+  Declaration(node, parent, scope, state) {
+    var ids = {};
+
+    var matchesLocal = (node, key) => {
+      return node.local === node[key] && (node.local.name === state.oldName || node.local.name === state.newName);
+    };
+
+    if (this.isExportDeclaration() && this.has("specifiers")) {
+      var specifiers = this.get("specifiers");
+      for (var specifier of (specifiers: Array)) {
+        if (specifier.isExportSpecifier() && matchesLocal(specifier.node, "exported")) {
+          specifier.get("exported").replaceWith(t.identifier(state.oldName));
+        }
+      }
+    } else if (this.isImportDeclaration() && this.has("specifiers")) {
+      var specifiers = this.get("specifiers");
+      for (var specifier of (specifiers: Array)) {
+        if (specifier.isImportSpecifier() && matchesLocal(specifier.node, "imported")) {
+          state.binding = state.info.identifier = t.identifier(state.newName);
+          specifier.get("local").replaceWith(state.binding);
+        } else {
+          extend(ids, specifier.getBindingIdentifiers());
+        }
+      }
+    } else {
+      ids = this.getBindingIdentifiers();
+    }
+
+    for (var name in ids) {
+      if (name === state.oldName) ids[name].name = state.newName;
+    }
+  },
+
+  Scopable(node, parent, scope, state) {
+    if (this.isScope()) {
+      if (!scope.bindingIdentifierEquals(state.oldName, state.binding)) {
+        this.skip();
+      }
+    }
+  }
+});
 
 export default class Scope {
 
@@ -242,8 +309,8 @@ export default class Scope {
     if (kind === "hoisted" && local.kind === "let") return;
 
     var duplicate = false;
-    duplicate ||= kind === "let" || kind === "const" || local.kind === "let" || local.kind === "const" || local.kind === "module";
-    duplicate ||= local.kind === "param" && (kind === "let" || kind === "const");
+    if (!duplicate) duplicate = kind === "let" || kind === "const" || local.kind === "let" || local.kind === "const" || local.kind === "module";
+    if (!duplicate) duplicate = local.kind === "param" && (kind === "let" || kind === "const");
 
     if (duplicate) {
       throw this.file.errorWithNode(id, messages.get("scopeDuplicateDeclaration", name), TypeError);
@@ -255,36 +322,38 @@ export default class Scope {
    */
 
   rename(oldName: string, newName: string, block?) {
-    newName ||= this.generateUidIdentifier(oldName).name;
+    newName = newName || this.generateUidIdentifier(oldName).name;
 
     var info = this.getBinding(oldName);
     if (!info) return;
 
-    var binding = info.identifier;
-    var scope   = info.scope;
+    var state = {
+      newName: newName,
+      oldName: oldName,
+      binding: info.identifier,
+      info:    info
+    };
 
-    scope.traverse(block || scope.block, {
-      enter(node, parent, scope) {
-        if (t.isReferencedIdentifier(node, parent) && node.name === oldName) {
-          node.name = newName;
-        } else if (t.isDeclaration(node)) {
-          var ids = this.getBindingIdentifiers();
-          for (var name in ids) {
-            if (name === oldName) ids[name].name = newName;
-          }
-        } else if (this.isScope()) {
-          if (!scope.bindingIdentifierEquals(oldName, binding)) {
-            this.skip();
-          }
-        }
-      }
-    });
+    var scope = info.scope;
+    scope.traverse(block || scope.block, renameVisitor, state);
 
     if (!block) {
       scope.removeOwnBinding(oldName);
       scope.bindings[newName] = info;
+      state.binding.name = newName;
+    }
 
-      binding.name = newName;
+    var file = this.file;
+    if (file) {
+      this._renameFromMap(file.moduleFormatter.localImports, oldName, newName, state.binding);
+      //this._renameFromMap(file.moduleFormatter.localExports, oldName, newName);
+    }
+  }
+
+  _renameFromMap(map, oldName, newName, value) {
+    if (map[oldName]) {
+      map[newName] = value;
+      map[oldName] = null;
     }
   }
 
@@ -429,6 +498,19 @@ export default class Scope {
    * Description
    */
 
+  isPure(node) {
+    if (t.isIdentifier(node)) {
+      var bindingInfo = this.getBinding(node.name);
+      return bindingInfo.constant;
+    } else {
+      return t.isPure(node);
+    }
+  }
+
+  /**
+   * Description
+   */
+
   crawl() {
     var path = this.path;
 
@@ -516,23 +598,35 @@ export default class Scope {
    */
 
   push(opts: Object) {
-    var block = this.block;
+    var path = this.path;
 
-    if (t.isLoop(block) || t.isCatchClause(block) || t.isFunction(block)) {
-      t.ensureBlock(block);
-      block = block.body;
+    if (path.isLoop() || path.isCatchClause() || path.isFunction()) {
+      t.ensureBlock(path.node);
+      path = path.get("body");
     }
 
-    if (!t.isBlockStatement(block) && !t.isProgram(block)) {
-      block = this.getBlockParent().block;
+    if (!path.isBlockStatement() && !path.isProgram()) {
+      path = this.getBlockParent().path;
     }
 
-    block._declarations ||= {};
-    block._declarations[opts.key || opts.id.name] = {
-      kind: opts.kind || "var",
-      id: opts.id,
-      init: opts.init
-    };
+    var unique = opts.unique;
+    var kind   = opts.kind || "var";
+
+    var dataKey = `declaration:${kind}`;
+    var declar  = !unique && path.getData(dataKey);
+
+    if (!declar) {
+      declar = t.variableDeclaration(opts.kind || "var", []);
+      declar._generated = true;
+      declar._blockHoist = 2;
+
+      this.file.attachAuxiliaryComment(declar);
+
+      path.get("body")[0]._containerInsertBefore([declar]);
+      if (!unique) path.setData(dataKey, declar);
+    }
+
+    declar.declarations.push(t.variableDeclarator(opts.id, opts.init));
   }
 
   /**
@@ -681,7 +775,7 @@ export default class Scope {
    */
 
   removeOwnBinding(name: string) {
-    this.bindings[name] = null;
+    delete this.bindings[name];
   }
 
   /**

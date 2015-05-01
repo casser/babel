@@ -14,7 +14,7 @@ function isLet(node, parent) {
   if (isLetInitable(node, parent)) {
     for (var i = 0; i < node.declarations.length; i++) {
       var declar = node.declarations[i];
-      declar.init ||= t.identifier("undefined");
+      declar.init = declar.init || t.identifier("undefined");
     }
   }
 
@@ -37,7 +37,7 @@ function standardizeLets(declars) {
   }
 }
 
-export function check(node) {
+export function shouldVisit(node) {
   return t.isVariableDeclaration(node) && (node.kind === "let" || node.kind === "const");
 }
 
@@ -139,7 +139,12 @@ var hoistVarDeclarationsVisitor = {
   enter(node, parent, scope, self) {
     if (this.isForStatement()) {
       if (isVar(node.init, node)) {
-        node.init = t.sequenceExpression(self.pushDeclar(node.init));
+        var nodes = self.pushDeclar(node.init);
+        if (nodes.length === 1) {
+          node.init = nodes[0];
+        } else {
+          node.init = t.sequenceExpression(nodes);
+        }
       }
     } else if (this.isFor()) {
       if (isVar(node.left, node)) {
@@ -606,7 +611,7 @@ class BlockScoping {
         for (var i = 0; i < cases.length; i++) {
           var caseConsequent = cases[i].consequent[0];
           if (t.isBreakStatement(caseConsequent) && !caseConsequent.label) {
-            caseConsequent.label = this.loopLabel ||= this.file.scope.generateUidIdentifier("loop");
+            caseConsequent.label = this.loopLabel = this.loopLabel || this.file.scope.generateUidIdentifier("loop");
           }
         }
 

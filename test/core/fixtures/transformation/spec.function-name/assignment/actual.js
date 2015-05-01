@@ -4,4 +4,6 @@ var i = function () {
 
 var j = function () {
   ({ j } = 5);
+  ({ y: j } = 5);
+  ;
 };

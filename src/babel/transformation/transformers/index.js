@@ -1,4 +1,6 @@
 export default {
+  _modules:                                require("./internal/modules"),
+
   "es7.classProperties":                   require("./es7/class-properties"),
   "es7.trailingFunctionCommas":            require("./es7/trailing-function-commas"),
   "es7.asyncFunctions":                    require("./es7/async-functions"),
@@ -23,8 +25,6 @@ export default {
   "optimisation.react.inlineElements":     require("./optimisation/react.inline-elements"),
   reactCompat:                             require("./other/react-compat"),
   react:                                   require("./other/react"),
-
-  _modules:                                require("./internal/modules"),
 
   // needs to be before `regenerator` due to generator comprehensions
   // needs to be before `_shadowFunctions`
@@ -94,8 +94,6 @@ export default {
 
   "spec.protoToAssign":                    require("./spec/proto-to-assign"),
 
-  _declarations:                           require("./internal/declarations"),
-
   _shadowFunctions:                        require("./internal/shadow-functions"),
 
   "es7.doExpressions":                     require("./es7/do-expressions"),
@@ -117,6 +115,6 @@ export default {
   "utility.inlineExpressions":             require("./utility/inline-expressions"),
   "utility.deadCodeElimination":           require("./utility/dead-code-elimination"),
 
-  flow:                                    require("./other/flow"),
-  _cleanUp:                                require("./internal/cleanup")
+  jscript:                                 require("./other/jscript"),
+  flow:                                    require("./other/flow")
 };

@@ -6,7 +6,7 @@
 
 import * as t from "../../../types";
 
-export function check(node) {
+export function shouldVisit(node) {
   return t.isImportDeclaration(node) || t.isExportDeclaration(node);
 }
 
@@ -15,6 +15,8 @@ export function ImportDeclaration(node, parent, scope, file) {
     node.source.value = file.resolveModuleSource(node.source.value);
   }
 }
+
+export { ImportDeclaration as ExportAllDeclaration };
 
 export function ExportDefaultDeclaration(node, parent, scope) {
   ImportDeclaration.apply(this, arguments);

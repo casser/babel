@@ -45,9 +45,13 @@ export default class TraversalPath {
     this.data      = {};
   }
 
+  /**
+   * Description
+   */
+
   static get(parentPath: TraversalPath, context?: TraversalContext, parent, container, key, file?: File) {
     var targetNode = container[key];
-    var paths = container._paths ||= [];
+    var paths = container._paths = container._paths || [];
     var path;
 
     for (var i = 0; i < paths.length; i++) {
@@ -68,6 +72,10 @@ export default class TraversalPath {
     return path;
   }
 
+  /**
+   * Description
+   */
+
   static getScope(path: TraversalPath, scope: Scope, file?: File) {
     var ourScope = scope;
 
@@ -79,28 +87,36 @@ export default class TraversalPath {
     return ourScope;
   }
 
+  /**
+   * Description
+   */
+
   queueNode(path) {
     if (this.context) {
       this.context.queue.push(path);
     }
   }
 
+  /**
+   * Description
+   */
+
   insertBefore(nodes) {
     nodes = this._verifyNodeList(nodes);
-    this.checkNodes(nodes);
 
     if (this.parentPath.isExpressionStatement() || this.parentPath.isLabeledStatement()) {
       return this.parentPath.insertBefore(nodes);
     } else if (this.isPreviousType("Expression") || (this.parentPath.isForStatement() && this.key === "init")) {
       if (this.node) nodes.push(this.node);
       this.replaceExpressionWithStatements(nodes);
-    } else if (this.isPreviousType("Statement")) {
+    } else if (this.isPreviousType("Statement") || !this.type) {
       this._maybePopFromStatements(nodes);
       if (Array.isArray(this.container)) {
         this._containerInsertBefore(nodes);
       } else if (this.isStatementOrBlock()) {
         if (this.node) nodes.push(this.node);
         this.container[this.key] = t.blockStatement(nodes);
+        this.checkPaths(this);
       } else {
         throw new Error("We don't know what to do with this node type. We were previously a Statement but we can't fit in here?");
       }
@@ -112,14 +128,23 @@ export default class TraversalPath {
   _containerInsert(from, nodes) {
     this.updateSiblingKeys(from, nodes.length);
 
+    var paths = [];
+
     for (var i = 0; i < nodes.length; i++) {
       var to = from + i;
-      this.container.splice(to, 0, nodes[i]);
+      var node = nodes[i];
+      this.container.splice(to, 0, node);
 
       if (this.context) {
-        this.queueNode(this.context.create(this.parent, this.container, to));
+        var path = this.context.create(this.parent, this.container, to);
+        paths.push(path);
+        this.queueNode(path);
+      } else {
+        paths.push(TraversalPath.get(this, null, node, this.container, to));
       }
     }
+
+    this.checkPaths(paths);
   }
 
   _containerInsertBefore(nodes) {
@@ -137,6 +162,10 @@ export default class TraversalPath {
     }
   }
 
+  /**
+   * Description
+   */
+
   isCompletionRecord() {
     var path = this;
 
@@ -150,6 +179,10 @@ export default class TraversalPath {
     return true;
   }
 
+  /**
+   * Description
+   */
+
   isStatementOrBlock() {
     if (t.isLabeledStatement(this.parent) || t.isBlockStatement(this.container)) {
       return false;
@@ -158,9 +191,12 @@ export default class TraversalPath {
     }
   }
 
+  /**
+   * Description
+   */
+
   insertAfter(nodes) {
     nodes = this._verifyNodeList(nodes);
-    this.checkNodes(nodes);
 
     if (this.parentPath.isExpressionStatement() || this.parentPath.isLabeledStatement()) {
       return this.parentPath.insertAfter(nodes);
@@ -171,13 +207,14 @@ export default class TraversalPath {
         nodes.push(t.expressionStatement(temp));
       }
       this.replaceExpressionWithStatements(nodes);
-    } else if (this.isPreviousType("Statement")) {
+    } else if (this.isPreviousType("Statement") || !this.type) {
       this._maybePopFromStatements(nodes);
       if (Array.isArray(this.container)) {
         this._containerInsertAfter(nodes);
       } else if (this.isStatementOrBlock()) {
         if (this.node) nodes.unshift(this.node);
         this.container[this.key] = t.blockStatement(nodes);
+        this.checkPaths(this);
       } else {
         throw new Error("We don't know what to do with this node type. We were previously a Statement but we can't fit in here?");
       }
@@ -185,6 +222,10 @@ export default class TraversalPath {
       throw new Error("No clue what to do with this node type.");
     }
   }
+
+  /**
+   * Description
+   */
 
   updateSiblingKeys(fromIndex, incrementBy) {
     var paths = this.container._paths;
@@ -196,9 +237,17 @@ export default class TraversalPath {
     }
   }
 
+  /**
+   * Description
+   */
+
   setData(key, val) {
     return this.data[key] = val;
   }
+
+  /**
+   * Description
+   */
 
   getData(key, def) {
     var val = this.data[key];
@@ -206,13 +255,26 @@ export default class TraversalPath {
     return val;
   }
 
+  /**
+   * Description
+   */
+
   setScope(file?) {
-    this.scope = TraversalPath.getScope(this, this.context && this.context.scope, file);
+    var target = this.context || this.parentPath;
+    this.scope = TraversalPath.getScope(this, target && target.scope, file);
   }
+
+  /**
+   * Description
+   */
 
   clearContext() {
     this.context = null;
   }
+
+  /**
+   * Description
+   */
 
   setContext(parentPath, context, key, file?) {
     this.shouldSkip = false;
@@ -230,7 +292,10 @@ export default class TraversalPath {
 
     this.type = this.node && this.node.type;
 
+    var log = file && this.type === "Program";
+    if (log) file.log.debug("Start scope building");
     this.setScope(file);
+    if (log) file.log.debug("End scope building");
   }
 
   _remove() {
@@ -242,26 +307,65 @@ export default class TraversalPath {
     }
   }
 
-  remove() {
-    var removeParent = false;
-    if (this.parentPath) {
-      removeParent ||= this.parentPath.isExpressionStatement();
-      removeParent ||= this.parentPath.isSequenceExpression() && this.parent.expressions.length === 1
-      if (removeParent) return this.parentPath.remove();
-    }
+  /**
+   * Description
+   */
 
+  remove() {
     this._remove();
     this.removed = true;
+
+    var parentPath = this.parentPath;
+    var parent = this.parent;
+    if (!parentPath) return;
+
+    // we've just removed the last declarator of a variable declaration so there's no point in
+    // keeping it
+    if (parentPath.isVariableDeclaration() && parent.declarations.length === 0) {
+      return parentPath.remove();
+    }
+
+    // we're the child of an expression statement so we should remove the parent
+    if (parentPath.isExpressionStatement()) {
+      return parentPath.remove();
+    }
+
+    // we've just removed the second element of a sequence expression so let's turn that sequence
+    // expression into a regular expression
+    if (parentPath.isSequenceExpression() && parent.expressions.length === 1) {
+      parentPath.replaceWith(parent.expressions[0]);
+    }
+
+    // we're in a binary expression, better remove it and replace it with the last expression
+    if (parentPath.isBinary()) {
+      if (this.key === "left") {
+        parentPath.replaceWith(parent.right);
+      } else { // key === "right"
+        parentPath.replaceWith(parent.left);
+      }
+    }
   }
+
+  /**
+   * Description
+   */
 
   skip() {
     this.shouldSkip = true;
   }
 
+  /**
+   * Description
+   */
+
   stop() {
     this.shouldStop = true;
     this.shouldSkip = true;
   }
+
+  /**
+   * Description
+   */
 
   errorWithNode(msg, Error = SyntaxError) {
     var loc = this.node.loc.start;
@@ -282,6 +386,10 @@ export default class TraversalPath {
     throw new Error("Don't use `path.node = newNode;`, use `path.replaceWith(newNode)` or `path.replaceWithMultiple([newNode])`");
   }
 
+  /**
+   * Description
+   */
+
   replaceInline(nodes) {
     if (Array.isArray(nodes)) {
       if (Array.isArray(this.container)) {
@@ -295,6 +403,10 @@ export default class TraversalPath {
       return this.replaceWith(nodes);
     }
   }
+
+  /**
+   * Description
+   */
 
   _verifyNodeList(nodes) {
     if (nodes.constructor !== Array) {
@@ -315,6 +427,43 @@ export default class TraversalPath {
     return nodes;
   }
 
+  /**
+   * Description
+   */
+
+  unshiftContainer(containerKey, nodes) {
+    nodes = this._verifyNodeList(nodes);
+
+    // get the first path and insert our nodes before it, if it doesn't exist then it
+    // doesn't matter, our nodes will be inserted anyway
+
+    var container = this.node[containerKey];
+    var path      = TraversalPath.get(this, null, this.node, container, 0);
+
+    return path.insertBefore(nodes);
+  }
+
+  /**
+   * Description
+   */
+
+  pushContainer(containerKey, nodes) {
+    nodes = this._verifyNodeList(nodes);
+
+    // get an invisible path that represents the last node + 1 and replace it with our
+    // nodes, effectively inlining it
+
+    var container = this.node[containerKey];
+    var i         = container.length;
+    var path      = TraversalPath.get(this, null, this.node, container, i);
+
+    return path.replaceWith(nodes, true);
+  }
+
+  /**
+   * Description
+   */
+
   replaceWithMultiple(nodes: Array<Object>) {
     nodes = this._verifyNodeList(nodes);
     t.inheritsComments(nodes[0], this.node);
@@ -322,6 +471,10 @@ export default class TraversalPath {
     this.insertAfter(nodes);
     if (!this.node) this.remove();
   }
+
+  /**
+   * Description
+   */
 
   replaceWith(replacement, arraysAllowed) {
     if (this.removed) {
@@ -354,18 +507,22 @@ export default class TraversalPath {
     // potentially create new scope
     this.setScope();
 
-    this.checkNodes([replacement]);
+    this.checkPaths(this);
   }
 
-  checkNodes(nodes) {
+  /**
+   * Description
+   */
+
+  checkPaths(paths) {
     var scope = this.scope;
     var file  = scope && scope.file;
-    if (!file) return;
-
-    for (var i = 0; i < nodes.length; i++) {
-      file.checkNode(nodes[i], scope);
-    }
+    if (file) file.checkPath(paths);
   }
+
+  /**
+   * Description
+   */
 
   getStatementParent(): ?TraversalPath {
     var path = this;
@@ -384,6 +541,10 @@ export default class TraversalPath {
 
     return path;
   }
+
+  /**
+   * Description
+   */
 
   getLastStatements(): Array<TraversalPath> {
     var paths = [];
@@ -405,6 +566,10 @@ export default class TraversalPath {
 
     return paths;
   }
+
+  /**
+   * Description
+   */
 
   replaceExpressionWithStatements(nodes: Array) {
     var toSequenceExpression = t.toSequenceExpression(nodes, this.scope);
@@ -432,6 +597,10 @@ export default class TraversalPath {
     }
   }
 
+  /**
+   * Description
+   */
+
   call(key) {
     var node = this.node;
     if (!node) return;
@@ -440,17 +609,27 @@ export default class TraversalPath {
     var fn   = opts[key] || opts;
     if (opts[node.type]) fn = opts[node.type][key] || fn;
 
+    // call the function with the params (node, parent, scope, state)
     var replacement = fn.call(this, node, this.parent, this.scope, this.state);
     if (replacement) this.replaceWith(replacement, true);
   }
+
+  /**
+   * Description
+   */
 
   isBlacklisted(): boolean {
     var blacklist = this.opts.blacklist;
     return blacklist && blacklist.indexOf(this.node.type) > -1;
   }
 
+  /**
+   * Description
+   */
+
   visit(): boolean {
     if (this.isBlacklisted()) return false;
+    if (this.opts.shouldSkip(this)) return false;
 
     this.call("enter");
 
@@ -477,47 +656,98 @@ export default class TraversalPath {
     return this.shouldStop;
   }
 
+  /**
+   * Description
+   */
+
   getSibling(key) {
     return TraversalPath.get(this.parentPath, null, this.parent, this.container, key, this.file);
   }
 
+  /**
+   * Description
+   */
+
   get(key: string): TraversalPath {
     var parts = key.split(".");
-    if (parts.length === 1) { // "foo.bar"
-      var node = this.node;
-      var container = node[key];
-      if (Array.isArray(container)) {
-        return container.map((_, i) => {
-          return TraversalPath.get(this, null, node, container, i);
-        });
-      } else {
-        return TraversalPath.get(this, null, node, node, key);
-      }
-    } else { // "foo"
-      var path = this;
-      for (var i = 0; i > parts.length; i++) {
-        var part = parts[i];
-        if (part === ".") {
-          path = path.parentPath;
-        } else {
-          path = path.get(parts[i]);
-        }
-      }
-      return path;
+    if (parts.length === 1) { // "foo"
+      return this._getKey(key);
+    } else { // "foo.bar"
+      return this._getPattern(parts);
     }
   }
 
-  has(key): boolean {
-    return !!this.node[key];
+  /**
+   * Description
+   */
+
+  _getKey(key) {
+    var node      = this.node;
+    var container = node[key];
+
+    if (Array.isArray(container)) {
+      // requested a container so give them all the paths
+      return container.map((_, i) => {
+        return TraversalPath.get(this, null, node, container, i);
+      });
+    } else {
+      return TraversalPath.get(this, null, node, node, key);
+    }
   }
+
+  /**
+   * Description
+   */
+
+  _getPattern(parts) {
+    var path = this;
+    for (var i = 0; i > parts.length; i++) {
+      var part = parts[i];
+      if (part === ".") {
+        path = path.parentPath;
+      } else {
+        if (Array.isArray(path)) {
+          path = path[part];
+        } else {
+          path = path.get(part);
+        }
+      }
+    }
+    return path;
+  }
+
+  /**
+   * Description
+   */
+
+  has(key): boolean {
+    var val = this.node[key];
+    if (val && Array.isArray(val)) {
+      return !!val.length;
+    } else {
+      return !!val;
+    }
+  }
+
+  /**
+   * Description
+   */
 
   is(key): boolean {
     return this.has(key);
   }
 
+  /**
+   * Description
+   */
+
   isnt(key): boolean {
     return !this.has(key);
   }
+
+  /**
+   * Description
+   */
 
   getTypeAnnotation(): {
     inferred: boolean;
@@ -546,6 +776,10 @@ export default class TraversalPath {
 
     return info;
   }
+
+  /**
+   * Description
+   */
 
   resolve(): ?TraversalPath {
     if (this.isVariableDeclarator()) {
@@ -589,7 +823,7 @@ export default class TraversalPath {
         var match = prop.isnt("computed") && key.isIdentifier({ name: targetName });
 
         // { "foo": "obj" } or { ["foo"]: "obj" }
-        match ||= key.isLiteral({ value: targetName });
+        match = match || key.isLiteral({ value: targetName });
 
         if (match) return prop.get("value");
       }
@@ -597,6 +831,10 @@ export default class TraversalPath {
       return this;
     }
   }
+
+  /**
+   * Description
+   */
 
   inferType(path: TraversalPath): ?Object {
     path = path.resolve();
@@ -635,29 +873,57 @@ export default class TraversalPath {
     }
   }
 
+  /**
+   * Description
+   */
+
   isScope(): boolean {
     return t.isScope(this.node, this.parent);
   }
+
+  /**
+   * Description
+   */
 
   isReferencedIdentifier(opts): boolean {
     return t.isReferencedIdentifier(this.node, this.parent, opts);
   }
 
+  /**
+   * Description
+   */
+
   isReferenced(): boolean {
     return t.isReferenced(this.node, this.parent);
   }
+
+  /**
+   * Description
+   */
 
   isBlockScoped(): boolean {
     return t.isBlockScoped(this.node);
   }
 
+  /**
+   * Description
+   */
+
   isVar(): boolean {
     return t.isVar(this.node);
   }
 
+  /**
+   * Description
+   */
+
   isPreviousType(type: string): boolean {
     return t.isType(this.type, type);
   }
+
+  /**
+   * Description
+   */
 
   isTypeGeneric(genericName: string, opts = {}): boolean {
     var typeInfo = this.getTypeAnnotation();
@@ -679,9 +945,17 @@ export default class TraversalPath {
     return true;
   }
 
+  /**
+   * Description
+   */
+
   getBindingIdentifiers() {
     return t.getBindingIdentifiers(this.node);
   }
+
+  /**
+   * Description
+   */
 
   traverse(visitor, state) {
     traverse(this.node, visitor, this.scope, state, this);

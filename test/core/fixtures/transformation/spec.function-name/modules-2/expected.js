@@ -6,7 +6,7 @@ Object.defineProperty(exports, "__esModule", {
 
 var _last2 = require("lodash/array/last");
 
-var _last3 = babelHelpers.interopRequireWildcard(_last2);
+var _last3 = babelHelpers.interopRequireDefault(_last2);
 
 var Container = (function () {
   function Container() {
@@ -15,20 +15,13 @@ var Container = (function () {
 
   babelHelpers.createClass(Container, [{
     key: "last",
-    value: (function (_last) {
-      function last(_x) {
-        return _last.apply(this, arguments);
+    value: function last(key) {
+      if (!this.has(key)) {
+        return;
       }
 
-      last.toString = function () {
-        return _last.toString();
-      };
-
-      return last;
-    })(function (key) {
-      if (!this.has(key)) return;
       return _last3["default"](this.tokens.get(key));
-    })
+    }
   }]);
   return Container;
 })();

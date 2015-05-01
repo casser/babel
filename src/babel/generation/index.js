@@ -12,7 +12,7 @@ import * as t from "../types";
 
 class CodeGenerator {
   constructor(ast, opts, code) {
-    opts ||= {};
+    opts = opts || {};
 
     this.comments = ast.comments || [];
     this.tokens   = ast.tokens || [];
@@ -34,9 +34,10 @@ class CodeGenerator {
     }
 
     var format = {
+      retainLines: opts.retainLines,
       comments: opts.comments == null || opts.comments,
       compact: opts.compact,
-      quotes: CodeGenerator.findCommonStringDelimeter(code, tokens),
+      quotes: CodeGenerator.findCommonStringDelimiter(code, tokens),
       indent: {
         adjustMultilineComment: true,
         style: style,
@@ -48,14 +49,14 @@ class CodeGenerator {
       format.compact = code.length > 100000; // 100KB
 
       if (format.compact) {
-        console.error(messages.get("codeGeneratorDeopt", opts.filename, "100KB"));
+        console.error("[BABEL] " + messages.get("codeGeneratorDeopt", opts.filename, "100KB"));
       }
     }
 
     return format;
   }
 
-  static findCommonStringDelimeter(code, tokens) {
+  static findCommonStringDelimiter(code, tokens) {
     var occurences = {
       single: 0,
       double: 0
@@ -146,6 +147,22 @@ class CodeGenerator {
     return print;
   }
 
+  catchUp(node, parent) {
+    // catch up to this nodes newline if we're behind
+    if (node.loc && this.format.retainLines && this.buffer.buf) {
+      var needsParens = false;
+      if (parent && this.position.line < node.loc.start.line && t.isTerminatorless(parent)) {
+        needsParens = true;
+        this._push("(");
+      }
+      while (this.position.line < node.loc.start.line) {
+        this._push("\n");
+      }
+      return needsParens;
+    }
+    return false;
+  }
+
   print(node, parent, opts = {}) {
     if (!node) return;
 
@@ -197,6 +214,8 @@ class CodeGenerator {
 
       this.printLeadingComments(node, parent);
 
+      var needsParensFromCatchup = this.catchUp(node, parent);
+
       newline(true);
 
       if (opts.before) opts.before();
@@ -208,7 +227,7 @@ class CodeGenerator {
         this.newline();
         this.dedent();
       }
-      if (needsParens) this.push(")");
+      if (needsParens || needsParensFromCatchup) this.push(")");
 
       this.map.mark(node, "end");
       if (opts.after) opts.after();
@@ -328,6 +347,8 @@ class CodeGenerator {
 
       if (skip) return;
 
+      this.catchUp(comment);
+
       // whitespace before
       this.newline(this.whitespace.getNewlinesBefore(comment));
 
@@ -340,7 +361,6 @@ class CodeGenerator {
       }
 
       //
-
       if (comment.type === "Block" && this.format.indent.adjustMultilineComment) {
         var offset = comment.loc.start.column;
         if (offset) {
@@ -356,8 +376,13 @@ class CodeGenerator {
         val = this.getIndent() + val;
       }
 
-      //
+      // force a newline for line comments when retainLines is set in case the next printed node
+      // doesn't catch up
+      if (this.format.retainLines && comment.type === "Line") {
+        val += "\n";
+      }
 
+      //
       this._push(val);
 
       // whitespace after

@@ -52,11 +52,11 @@ function aliasFunction(getBody, path, scope) {
 
   var state = {
     getArgumentsId() {
-      return argumentsId ||= scope.generateUidIdentifier("arguments");
+      return argumentsId = argumentsId || scope.generateUidIdentifier("arguments");
     },
 
     getThisId() {
-      return thisId ||= scope.generateUidIdentifier("this");
+      return thisId = thisId || scope.generateUidIdentifier("this");
     }
   };
 
@@ -67,7 +67,7 @@ function aliasFunction(getBody, path, scope) {
   var body;
 
   var pushDeclaration = function (id, init) {
-    body ||= getBody();
+    body = body || getBody();
     body.unshift(t.variableDeclaration("var", [
       t.variableDeclarator(id, init)
     ]));
@@ -81,6 +81,10 @@ function aliasFunction(getBody, path, scope) {
     pushDeclaration(thisId, t.thisExpression());
   }
 };
+
+export function shouldVisit(node) {
+  return true;
+}
 
 export function Program(node, parent, scope) {
   aliasFunction(function () {
