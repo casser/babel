@@ -14,9 +14,13 @@ const PROPERTY_COLLISION_METHOD_NAME = "__initializeProperties";
 export var shouldVisit = t.isClass;
 
 export function ClassDeclaration(node, parent, scope, file) {
-  return t.variableDeclaration("let", [
-    t.variableDeclarator(node.id, t.toExpression(node))
-  ]);
+  if(node.superClass && node.id.name==node.superClass.name && t.NATIVE_TYPE_NAMES.indexOf(node.superClass.name) >= 0){
+    return t.expressionStatement(t.toExpression(node));
+  }else{
+    return t.variableDeclaration("let", [
+      t.variableDeclarator(node.id, t.toExpression(node))
+    ]);
+  }
 }
 
 export function ClassExpression(node, parent, scope, file) {
@@ -156,6 +160,10 @@ class ClassTransformer {
 
     var superClass = this.node.superClass;
     this.isNativeSuper = superClass && t.isIdentifier(superClass) && t.NATIVE_TYPE_NAMES.indexOf(superClass.name) >= 0;
+    this.isPolyfill =
+      superClass && t.isIdentifier(superClass) &&
+      className && t.isIdentifier(className) &&
+      superClass.name == className.name ;
 
     if (this.isNativeSuper) {
       this.nativeSuperRef = this.scope.generateUidIdentifier("this");
@@ -170,10 +178,13 @@ class ClassTransformer {
     var constructorBody = this.constructorBody = t.blockStatement([]);
     var constructor;
 
-    if (this.className) {
+    if (this.className && !this.isPolyfill) {
       constructor = t.functionDeclaration(this.className, [], constructorBody);
       body.push(constructor);
-    } else {
+    } else
+    if(this.isPolyfill){
+      constructor = t.functionExpression(superName, [], constructorBody);
+    }else{
       constructor = t.functionExpression(null, [], constructorBody);
     }
 
@@ -192,7 +203,10 @@ class ClassTransformer {
       closureParams.push(superName);
 
       this.superName = superName;
-      body.push(t.expressionStatement(t.callExpression(file.addHelper("inherits"), [classRef, superName])));
+      if(!this.isPolyfill){
+        body.push(t.expressionStatement(t.callExpression(file.addHelper("inherits"), [classRef, superName])));
+      }
+
     }
 
     //
@@ -240,16 +254,21 @@ class ClassTransformer {
       constructorBody.body.push(t.returnStatement(this.nativeSuperRef));
     }
 
-    if (this.className) {
+    if (this.className && !this.isPolyfill) {
       // named class with only a constructor
       if (body.length === 1) return t.toExpression(body[0]);
     } else {
       // infer class name if this is a nameless class expression
       constructor = nameMethod.bare(constructor, this.parent, this.scope) || constructor;
-
-      body.unshift(t.variableDeclaration("var", [
-        t.variableDeclarator(classRef, constructor)
-      ]));
+      if(this.isPolyfill){
+        body.unshift(t.variableDeclaration("var", [
+          t.variableDeclarator(className, t.logicalExpression("||",superName,constructor))
+        ]));
+      }else{
+        body.unshift(t.variableDeclaration("var", [
+          t.variableDeclarator(classRef, constructor)
+        ]));
+      }
 
       t.inheritsComments(body[0], this.node);
     }
@@ -511,7 +530,8 @@ class ClassTransformer {
    * Push a method to its respective mutatorMap.
    */
 
-  pushMethod(node: { type: "MethodDefinition" }, allowedIllegal?) {
+  pushMethod(node, allowedIllegal) {
+
     if (!allowedIllegal && t.isLiteral(t.toComputedKey(node), { value: PROPERTY_COLLISION_METHOD_NAME })) {
       throw this.file.errorWithNode(node, messages.get("illegalMethodName", PROPERTY_COLLISION_METHOD_NAME));
     }
@@ -540,7 +560,7 @@ class ClassTransformer {
    * Description
    */
 
-  pushProperty(node: { type: "ClassProperty" }) {
+  pushProperty(node) {
     var key;
 
     this.scope.traverse(node, collectPropertyReferencesVisitor, {
@@ -598,7 +618,7 @@ class ClassTransformer {
    * Replace the constructor body of our class.
    */
 
-  pushConstructor(method: { type: "MethodDefinition" }, path: TraversalPath) {
+  pushConstructor(method, path: TraversalPath) {
     // https://github.com/babel/babel/issues/1077
     var fnPath = path.get("value");
     if (fnPath.scope.hasOwnBinding(this.classRef.name)) {

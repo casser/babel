@@ -2,7 +2,7 @@ var Foo = class Foo {
   bar() {
     return Foo;
   }
-}
+};
 
 var Bar = Foo;
 Foo = 5;
