@@ -12,35 +12,30 @@ import * as t from "../../../types";
 const PROPERTY_COLLISION_METHOD_NAME = "__initializeProperties";
 
 export var shouldVisit = t.isClass;
-
 export function ClassDeclaration(node, parent, scope, file) {
-  if(node.superClass && node.id.name==node.superClass.name && t.NATIVE_TYPE_NAMES.indexOf(node.superClass.name) >= 0){
-    return t.expressionStatement(t.toExpression(node));
-  }else{
-    return t.variableDeclaration("let", [
-      t.variableDeclarator(node.id, t.toExpression(node))
-    ]);
+  var shim = Decorator.take(node, 'shim');
+  if (shim) {
+    return new ClassPolyfillTransformer(this, file).run();
+  } else {
+    return new ClassDeclarationTransformer(this, file).run();
   }
 }
-
 export function ClassExpression(node, parent, scope, file) {
-  return new ClassTransformer(this, file).run();
+  return new ClassExpressionTransformer(this, file).run();
 }
 
 var collectPropertyReferencesVisitor = {
   Identifier: {
     enter(node, parent, scope, state) {
-      if (this.parentPath.isClassProperty({ key: node })) {
+      if (this.parentPath.isClassProperty({key: node})) {
         return;
       }
-
       if (this.isReferenced() && scope.getBinding(node.name) === state.scope.getBinding(node.name)) {
         state.references[node.name] = true;
       }
     }
   }
 };
-
 var constructorVisitor = traverse.explode({
   ThisExpression: {
     enter(node, parent, scope, ref) {
@@ -56,7 +51,6 @@ var constructorVisitor = traverse.explode({
     }
   }
 });
-
 var verifyConstructorVisitor = traverse.explode({
   MethodDefinition: {
     enter() {
@@ -108,39 +102,172 @@ var verifyConstructorVisitor = traverse.explode({
   }
 });
 
+class Decorator {
+  static has(node, name) {
+    return !!Decorator.get(node, name);
+  }
+
+  static get(node, name) {
+    if (node.decorators) {
+      for (var i = 0; i < node.decorators.length; i++) {
+        if (node.decorators[i].name == name) {
+          return node.decorators[i];
+        }
+      }
+    }
+  }
+
+  static take(node, name) {
+    return Decorator.remove(node, name)[0];
+  }
+
+  static remove(node, name) {
+    return Decorator.all(node, name, true);
+  }
+
+  static all(node, name, remove) {
+    var removed = [];
+    if (node.decorators) {
+      node.decorators = node.decorators.filter(decorator=> {
+        var match = decorator.expression.name == name;
+        if (match) {
+          removed.push(decorator);
+        }
+        return remove ? !match : true;
+      });
+    }
+    return removed;
+  }
+}
+
 class ClassTransformer {
+  static MODIFIERS = {
+    HIDDEN    : 0b0000000001,//!@hidden
+    FINAL     : 0b0000000010,//!@final
+    CONSTANT  : 0b0000000100 //!@constant
+  };
+
+  static getMask(node) {
+    var flags = 0;
+    flags = flags | ((!!Decorator.take(node, 'hidden'))   ? ClassTransformer.MODIFIERS.HIDDEN:0);//enum
+    flags = flags | ((!!Decorator.take(node, 'final'))    ? ClassTransformer.MODIFIERS.FINAL:0);//conf
+    flags = flags | ((!!Decorator.take(node, 'constant')) ? ClassTransformer.MODIFIERS.CONSTANT:0);//wr
+    if(flags>0){
+      flags = flags.toString(32);
+      if (flags.length < 2) {
+        flags = '0' + flags;
+      }
+      return flags;
+    }
+  }
+
+  get isPolyfilled() {
+    return false;
+  }
+
+  get className() {
+    return Object.defineProperty(this, 'className', {
+      value: this.node.id
+    }).className;
+  }
+
+  get classReference() {
+    return Object.defineProperty(this, 'classReference', {
+      value: this.className
+    }).classReference;
+  }
+
+  get superName() {
+    return Object.defineProperty(this, 'superName', {
+      value: this.node.superClass || t.identifier("Function")
+    }).superName;
+  }
+
+  get superReference() {
+    return Object.defineProperty(this, 'superReference', {
+      value: t.identifier('E56P')
+    }).superReference;
+  }
+
+  get classClosure() {
+    return Object.defineProperty(this, 'classClosure', {
+      value: t.callExpression(
+        t.functionExpression(null, this.closureParameters, this.closureBody),
+        this.closureArguments
+      )
+    }).classClosure;
+  }
+
+  get closureParameters() {
+    return Object.defineProperty(this, 'closureParameters', {
+      value: [this.superReference]
+    }).closureParameters;
+  }
+
+  get closureArguments() {
+    return Object.defineProperty(this, 'closureArguments', {
+      value: []
+    }).closureArguments;
+  }
+
+  get closureBody() {
+    return Object.defineProperty(this, 'closureBody', {
+      value: t.blockStatement([
+        this.classConstructor,
+        ... this.classMembers,
+        t.returnStatement(this.classReference)
+      ])
+    }).closureBody;
+  }
+
+  get classInheritace() {
+    return [t.expressionStatement(t.callExpression(
+      t.memberExpression(t.identifier('E56'), t.identifier('IC')), [
+        this.classReference,
+        this.superReference
+      ]))];
+  }
+
+  get classMembers() {
+    return [t.expressionStatement(t.callExpression(
+      t.memberExpression(t.identifier('Class'), t.identifier('define')), [
+        this.classReference, t.objectExpression(this.members)
+      ]))];
+  }
+
+
+  get classConstructor() {
+    return Object.defineProperty(this, 'classConstructor', {
+      value: t.variableDeclaration("var", [
+        t.variableDeclarator(this.classReference,
+          t.functionDeclaration(this.className, this.constructorParameters, this.constructorBody)
+        )
+      ])
+    }).classConstructor;
+  }
+
+  get constructorParameters() {
+    console.info(this.construct);
+    return Object.defineProperty(this, 'constructorParameters', {
+      value: this.construct ? this.construct.params : []
+    }).constructorParameters;
+  }
+
+  get constructorBody() {
+    return Object.defineProperty(this, 'constructorBody', {
+      value: this.construct ? this.construct.body : t.blockStatement([])
+    }).constructorBody;
+  }
 
   /**
    * Description
    */
-
-  constructor(path: TraversalPath, file: File) {
+  constructor(path:TraversalPath, file:File) {
+    this.file = file;
+    this.path = path;
     this.parent = path.parent;
-    this.scope  = path.scope;
-    this.node   = path.node;
-    this.path   = path;
-    this.file   = file;
-
-    this.hasInstanceDescriptors = false;
-    this.hasStaticDescriptors   = false;
-
-    this.instanceMutatorMap = {};
-    this.staticMutatorMap   = {};
-
-    this.instancePropBody = [];
-    this.instancePropRefs = {};
-    this.staticPropBody   = [];
-    this.body             = [];
-
-    this.hasConstructor = false;
-    this.hasDecorators  = false;
-    this.className      = this.node.id;
-    this.classRef       = this.node.id || this.scope.generateUidIdentifier("class");
-
-    this.superName = this.node.superClass || t.identifier("Function");
-    this.hasSuper  = !!this.node.superClass;
-
-    this.isLoose = file.isLoose("es6.classes");
+    this.scope = path.scope;
+    this.node = path.node;
   }
 
   /**
@@ -150,497 +277,198 @@ class ClassTransformer {
    */
 
   run() {
-    var superName = this.superName;
-    var className = this.className;
-    var classBody = this.node.body.body;
-    var classRef  = this.classRef;
-    var file      = this.file;
-
-    //
-
-    var superClass = this.node.superClass;
-    this.isNativeSuper = superClass && t.isIdentifier(superClass) && t.NATIVE_TYPE_NAMES.indexOf(superClass.name) >= 0;
-    this.isPolyfill =
-      superClass && t.isIdentifier(superClass) &&
-      className && t.isIdentifier(className) &&
-      superClass.name == className.name ;
-
-    if (this.isNativeSuper) {
-      this.nativeSuperRef = this.scope.generateUidIdentifier("this");
-    }
-
-    //
-
-    var body = this.body;
-
-    //
-
-    var constructorBody = this.constructorBody = t.blockStatement([]);
-    var constructor;
-
-    if (this.className && !this.isPolyfill) {
-      constructor = t.functionDeclaration(this.className, [], constructorBody);
-      body.push(constructor);
-    } else
-    if(this.isPolyfill){
-      constructor = t.functionExpression(superName, [], constructorBody);
-    }else{
-      constructor = t.functionExpression(null, [], constructorBody);
-    }
-
-    this.constructor = constructor;
-
-    //
-
-    var closureParams = [];
-    var closureArgs = [];
-
-    //
-    if (this.hasSuper) {
-      closureArgs.push(superName);
-
-      superName = this.scope.generateUidBasedOnNode(superName);
-      closureParams.push(superName);
-
-      this.superName = superName;
-      if(!this.isPolyfill){
-        body.push(t.expressionStatement(t.callExpression(file.addHelper("inherits"), [classRef, superName])));
-      }
-
-    }
-
-    //
-    var decorators = this.node.decorators;
-    if (decorators) {
-      // create a class reference to use later on
-      this.classRef = this.scope.generateUidIdentifier(classRef);
-
-      // this is so super calls and the decorators have access to the raw function
-      body.push(t.variableDeclaration("var", [
-        t.variableDeclarator(this.classRef, classRef)
-      ]));
-    }
-
-    //
-    this.buildBody();
-
-    // make sure this class isn't directly called
-    constructorBody.body.unshift(t.expressionStatement(t.callExpression(file.addHelper("class-call-check"), [
-      t.thisExpression(),
-      this.classRef
-    ])));
-
-    //
-
-    if (decorators) {
-      // reverse the decorators so we execute them in the right order
-      decorators = decorators.reverse();
-
-      for (var i = 0; i < decorators.length; i++) {
-        var decorator = decorators[i];
-
-        var decoratorNode = util.template("class-decorator", {
-          DECORATOR: decorator.expression,
-          CLASS_REF: classRef
-        }, true);
-        decoratorNode.expression._ignoreModulesRemap = true;
-        body.push(decoratorNode);
-      }
-    }
-
-    if (this.isNativeSuper) {
-      // we've determined this is inheriting from a native class so return the constructed
-      // instance
-      constructorBody.body.push(t.returnStatement(this.nativeSuperRef));
-    }
-
-    if (this.className && !this.isPolyfill) {
-      // named class with only a constructor
-      if (body.length === 1) return t.toExpression(body[0]);
-    } else {
-      // infer class name if this is a nameless class expression
-      constructor = nameMethod.bare(constructor, this.parent, this.scope) || constructor;
-      if(this.isPolyfill){
-        body.unshift(t.variableDeclaration("var", [
-          t.variableDeclarator(className, t.logicalExpression("||",superName,constructor))
-        ]));
-      }else{
-        body.unshift(t.variableDeclaration("var", [
-          t.variableDeclarator(classRef, constructor)
-        ]));
-      }
-
-      t.inheritsComments(body[0], this.node);
-    }
-
-    body = body.concat(this.staticPropBody);
-
-    //
-
-    body.push(t.returnStatement(classRef));
-
-    return t.callExpression(
-      t.functionExpression(null, closureParams, t.blockStatement(body)),
-      closureArgs
-    );
+    this.initMembers();
+    this.initConstructor();
+    return this.classClosure;
   }
 
-  /**
-   * Description
-   */
-
-  pushToMap(node, enumerable, kind = "value") {
-    var mutatorMap;
-    if (node.static) {
-      this.hasStaticDescriptors = true;
-      mutatorMap = this.staticMutatorMap;
-    } else {
-      this.hasInstanceDescriptors = true;
-      mutatorMap = this.instanceMutatorMap;
-    }
-
-    var map = defineMap.push(mutatorMap, node, kind, this.file);
-
-    if (enumerable) {
-      map.enumerable = t.literal(true)
-    }
-
-    if (map.decorators) {
-      this.hasDecorators = true;
+  initConstructor() {
+    if(this.construct){
+      this.construct = this.construct.value;
     }
   }
 
-  /**
-   * Description
-   */
-
-  buildBody() {
-    var constructorBody = this.constructorBody;
-    var constructor     = this.constructor;
-    var className       = this.className;
-    var superName       = this.superName;
-    var classBody       = this.node.body.body;
-    var body            = this.body;
-
-    var classBodyPaths = this.path.get("body").get("body");
-
-    for (var i = 0; i < classBody.length; i++) {
-      var node = classBody[i];
-      var path = classBodyPaths[i];
-
-      if (node.decorators) {
-        memoiseDecorators(node.decorators, this.scope);
-      }
-
-      if (t.isMethodDefinition(node)) {
-        var isConstructor = node.kind === "constructor";
-        if (isConstructor) this.verifyConstructor(path);
-
-        var replaceSupers = new ReplaceSupers({
-          methodPath: path,
-          methodNode: node,
-          objectRef:  this.classRef,
-          superRef:   this.superName,
-          isStatic:   node.static,
-          isLoose:    this.isLoose,
-          scope:      this.scope,
-          file:       this.file
-        }, true);
-
-        replaceSupers.replace();
-
-        if (isConstructor) {
-          this.pushConstructor(node, path);
+  initMembers() {
+    var p = this.members = [], members = {
+      i: [],
+      n: {s: {}, i: {}}
+    };
+    if (this.node.body.body) {
+      for (var member of this.node.body.body) {
+        if (member.computed) {
+          members.i.push(member);
+        } else
+        if (member.kind == 'constructor') {
+          if (!this.construct) {
+            this.construct = member;
+          } else {
+            throw this.file.errorWithNode(member.key, messages.get("scopeDuplicateDeclaration", key));
+          }
         } else {
-          this.pushMethod(node);
+          var s, holder;
+          holder = member.static ? (s = ':', members.n.s) : (s = '.', members.n.i);
+          var key = s + (member.key.name);
+          if (!holder[key]) {
+            holder = holder[key] = {}
+          } else {
+            holder = holder[key];
+          }
+          if (member.type == 'ClassProperty') {
+            member.kind = 'field';
+          }
+          if (!member.kind) {
+            console.info(member);
+          }
+          if (!holder[member.kind]) {
+            holder[member.kind] = member;
+          } else {
+            console.info(member.kind, holder);
+            throw this.file.errorWithNode(member.key, messages.get("scopeDuplicateDeclaration", key));
+          }
+          if (holder.method && (holder.get || holder.set || holder.field)) {
+            throw this.file.errorWithNode(member.key, messages.get("scopeDuplicateDeclaration", key));
+          }
         }
-      } else if (t.isClassProperty(node)) {
-        this.pushProperty(node);
       }
     }
+    Object.keys(members.n.s).forEach((key)=> {
+      p.push(this.initMember(key,members.n.s[key]));
+    });
+    Object.keys(members.n.i).forEach((key)=> {
+      p.push(this.initMember(key,members.n.i[key]));
+    });
+  }
 
-    // we have no constructor, but we're a derived class
-    if (!this.hasConstructor && this.hasSuper) {
-      var helperName = "class-super-constructor-call";
-      if (this.isLoose) helperName += "-loose";
-      if (this.isNativeSuper) helperName = "class-super-native-constructor-call";
-      constructorBody.body.push(util.template(helperName, {
-        NATIVE_REF: this.nativeSuperRef,
-        CLASS_NAME: this.classRef,
-        SUPER_NAME: this.superName
-      }, true));
+  initMember(key,member) {
+    var k,v;
+    if (member.method) {
+      k = t.literal('M'+key);
+      v = this.initMethod(member.method);
+    } else {
+      k = t.literal('P'+key);
+      v = this.initField(member.field, member.get, member.set);
     }
+    return t.property("init",k,v);
+  }
 
-    //
-    this.placePropertyInitializers();
-
-    //
-    if (this.userConstructor) {
-      constructorBody.body = constructorBody.body.concat(this.userConstructor.body.body);
-      t.inherits(this.constructor, this.userConstructor);
-      t.inherits(this.constructorBody, this.userConstructor.body);
-    }
-
-    var instanceProps;
-    var staticProps;
-    var classHelper = "create-class";
-    if (this.hasDecorators) classHelper = "create-decorated-class";
-
-    if (this.hasInstanceDescriptors) {
-      instanceProps = defineMap.toClassObject(this.instanceMutatorMap);
-    }
-
-    if (this.hasStaticDescriptors) {
-      staticProps = defineMap.toClassObject(this.staticMutatorMap);
-    }
-
-    if (instanceProps || staticProps) {
-      if (instanceProps) instanceProps = defineMap.toComputedObjectFromClass(instanceProps);
-      if (staticProps) staticProps = defineMap.toComputedObjectFromClass(staticProps);
-
-      var nullNode = t.literal(null);
-
-      // (Constructor, instanceDescriptors, staticDescriptors, instanceInitializers, staticInitializers)
-      var args = [this.classRef, nullNode, nullNode, nullNode, nullNode];
-
-      if (instanceProps) args[1] = instanceProps;
-      if (staticProps) args[2] = staticProps;
-
-      if (this.instanceInitializersId) {
-        args[3] = this.instanceInitializersId;
-        body.unshift(this.buildObjectAssignment(this.instanceInitializersId));
+  initField(field, getter, setter) {
+    var p = [], d = [],m;
+    if (getter) {
+      if(getter.decorators){
+        d = d.concat(getter.decorators.map(d=>d.expression));
       }
-
-      if (this.staticInitializersId) {
-        args[4] = this.staticInitializersId;
-        body.unshift(this.buildObjectAssignment(this.staticInitializersId));
+      getter.value.id = t.identifier(getter.key.name + '_get');
+      p.push(t.property("init", t.literal("g"), getter.value))
+    }
+    if (setter) {
+      if(setter.decorators){
+        d = d.concat(setter.decorators.map(d=>d.expression));
       }
-
-      var lastNonNullIndex = 0;
-      for (var i = 0; i < args.length; i++) {
-        if (args[i] !== nullNode) lastNonNullIndex = i;
+      setter.value.id = t.identifier(setter.key.name + '_set');
+      p.push(t.property("init", t.identifier("s"), setter.value))
+    }
+    if (field) {
+      if(field.decorators){
+        d = d.concat(field.decorators.map(d=>d.expression));
       }
-      args = args.slice(0, lastNonNullIndex + 1);
+      m = ClassTransformer.getMask(field);
+      if(m){
+        p.unshift(t.property("init", t.identifier("m"), t.literal(m)));
+      }
+      if(field.value){
+        field.value = t.functionExpression(field.key, [], t.blockStatement([
+          t.returnStatement(field.value)
+        ]));
+        p.push(t.property("init", t.identifier("v"), field.value));
+      }
+    }
+    return t.objectExpression(p);
+  }
 
-
-      body.push(t.expressionStatement(
-        t.callExpression(this.file.addHelper(classHelper), args)
-      ));
+  initMethod(member) {
+    var p = [], m = ClassTransformer.getMask(member);
+    member.value.id = member.key;
+    if (member.decorators) {
+      p.unshift(t.property("init", t.literal("a"), t.arrayExpression(
+        member.decorators.map(d=>d.expression)
+      )));
+    }
+    p.push(t.property("init", t.identifier("v"), member.value));
+    if(m){
+      p.unshift(t.property("init", t.identifier("m"), t.literal(m)));
+    }
+    if(p.length==1 && p[0].key.name=='v'){
+      return p[0].value;
+    }else{
+      return t.objectExpression(p);
     }
   }
 
-  buildObjectAssignment(id) {
+
+}
+
+class ClassExpressionTransformer extends ClassTransformer {
+  constructor(path:TraversalPath, file:File) {
+    super(path,file);
+  }
+  buildClosure(body) {
+    return t.expressionStatement(super.buildClosure(body));
+  }
+}
+class ClassDeclarationTransformer extends ClassTransformer {
+  constructor(path:TraversalPath, file:File) {
+    super(path,file);
+  }
+  get closureParameters() {
+    return [t.identifier('E56P')];
+  }
+
+  get classClosure() {
+    var classClosure = Object.getOwnPropertyDescriptor(ClassTransformer.prototype, 'classClosure').get;
     return t.variableDeclaration("var", [
-      t.variableDeclarator(id, t.objectExpression([]))
+      t.variableDeclarator(this.className, classClosure.call(this))
     ]);
   }
-
-  /**
-   * Description
-   */
-
-  placePropertyInitializers() {
-    var body = this.instancePropBody;
-    if (!body.length) return;
-
-    if (this.hasPropertyCollision()) {
-      var call = t.expressionStatement(t.callExpression(
-        t.memberExpression(t.thisExpression(), t.identifier(PROPERTY_COLLISION_METHOD_NAME)),
-        []
-      ));
-
-      this.pushMethod(t.methodDefinition(
-        t.identifier(PROPERTY_COLLISION_METHOD_NAME),
-        t.functionExpression(null, [], t.blockStatement(body))
-      ), true);
-
-      if (this.hasSuper) {
-        this.bareSuper.insertAfter(call);
-      } else {
-        this.constructorBody.body.unshift(call);
-      }
-    } else {
-      if (this.hasSuper) {
-        if (this.hasConstructor) {
-          this.bareSuper.insertAfter(body);
-        } else {
-          this.constructorBody.body = this.constructorBody.body.concat(body);
-        }
-      } else {
-        this.constructorBody.body = body.concat(this.constructorBody.body);
-      }
-    }
+}
+class ClassPolyfillTransformer extends ClassTransformer {
+  constructor(path:TraversalPath, file:File) {
+    super(path,file);
   }
 
-  /**
-   * Description
-   */
-
-   hasPropertyCollision(): boolean {
-    if (this.userConstructorPath) {
-      for (var name in this.instancePropRefs) {
-        if (this.userConstructorPath.scope.hasOwnBinding(name)) {
-          return true;
-        }
-      }
-    }
-
-    return false;
-   }
-
-  /**
-   * Description
-   */
-
-   verifyConstructor(path: TraversalPath) {
-    var state = {
-      nativeSuperRef: this.nativeSuperRef,
-      isNativeSuper:  this.isNativeSuper,
-      hasBareSuper:   false,
-      bareSuper:      null,
-      hasSuper:       this.hasSuper,
-      file:           this.file
-    };
-
-    path.get("value").traverse(verifyConstructorVisitor, state);
-
-    this.bareSuper = state.bareSuper;
-
-    if (!state.hasBareSuper && this.hasSuper) {
-      throw path.errorWithNode("Derived constructor must call super()");
-    }
-
-    if (this.isNativeSuper && this.bareSuper) {
-      this.bareSuper.replaceWithMultiple([
-        t.variableDeclaration("var", [
-          t.variableDeclarator(this.nativeSuperRef, t.newExpression(this.superName, this.bareSuper.node.arguments))
-        ]),
-
-        t.expressionStatement(t.assignmentExpression(
-          "=",
-          t.memberExpression(this.nativeSuperRef, t.identifier("__proto__")),
-          t.memberExpression(this.classRef, t.identifier("prototype"))
-        )),
-        t.expressionStatement(this.nativeSuperRef)
-      ]);
-    }
-   }
-
-  /**
-   * Push a method to its respective mutatorMap.
-   */
-
-  pushMethod(node, allowedIllegal) {
-
-    if (!allowedIllegal && t.isLiteral(t.toComputedKey(node), { value: PROPERTY_COLLISION_METHOD_NAME })) {
-      throw this.file.errorWithNode(node, messages.get("illegalMethodName", PROPERTY_COLLISION_METHOD_NAME));
-    }
-
-    if (node.kind === "method") {
-      nameMethod.property(node, this.file, this.scope);
-
-      if (this.isLoose) {
-        // use assignments instead of define properties for loose classes
-
-        var classRef = this.classRef;
-        if (!node.static) classRef = t.memberExpression(classRef, t.identifier("prototype"));
-        var methodName = t.memberExpression(classRef, node.key, node.computed);
-
-        var expr = t.expressionStatement(t.assignmentExpression("=", methodName, node.value));
-        t.inheritsComments(expr, node);
-        this.body.push(expr);
-        return;
-      }
-    }
-
-    this.pushToMap(node);
+  get closureArguments() {
+    return [this.namespace];
   }
 
-  /**
-   * Description
-   */
-
-  pushProperty(node) {
-    var key;
-
-    this.scope.traverse(node, collectPropertyReferencesVisitor, {
-      references: this.instancePropRefs,
-      scope:      this.scope
-    });
-
-    if (node.decorators) {
-      var body = [];
-      if (node.value) {
-        body.push(t.returnStatement(node.value));
-        node.value = t.functionExpression(null, [], t.blockStatement(body));
-      } else {
-        node.value = t.literal(null);
-      }
-      this.pushToMap(node, true, "initializer");
-
-      var initializers;
-      var body;
-      var target;
-      if (node.static) {
-        initializers = this.staticInitializersId = this.staticInitializersId || this.scope.generateUidIdentifier("staticInitializers");
-        body = this.staticPropBody;
-        target = this.classRef;
-      } else {
-        initializers = this.instanceInitializersId = this.instanceInitializersId || this.scope.generateUidIdentifier("instanceInitializers");
-        body = this.instancePropBody;
-        target = t.thisExpression();
-      }
-
-      body.push(t.expressionStatement(
-        t.callExpression(this.file.addHelper("define-decorated-property-descriptor"), [
-          target,
-          t.literal(node.key.name),
-          initializers
-        ])
-      ));
-    } else {
-      if (!node.value && !node.decorators) return;
-
-      if (node.static) {
-        // can just be added to the static map
-        this.pushToMap(node, true);
-      } else if (node.value) {
-        // add this to the instancePropBody which will be added after the super call in a derived constructor
-        // or at the start of a constructor for a non-derived constructor
-        this.instancePropBody.push(t.expressionStatement(
-          t.assignmentExpression("=", t.memberExpression(t.thisExpression(), node.key), node.value)
-        ));
-      }
-    }
+  get namespace() {
+    return Object.defineProperty(this, 'namespace', {
+      value: t.memberExpression(t.identifier("global"), this.className)
+    }).namespace;
   }
 
-  /**
-   * Replace the constructor body of our class.
-   */
+  get classConstructor() {
+    return Object.defineProperty(this, 'classConstructor', {
+      value: t.variableDeclaration("var", [
+        t.variableDeclarator(this.classReference,
+          t.logicalExpression('||',
+            this.superReference,
+            t.functionDeclaration(this.className, this.constructorParameters, this.constructorBody)
+          )
+        )
+      ])
+    }).classConstructor;
+  }
 
-  pushConstructor(method, path: TraversalPath) {
-    // https://github.com/babel/babel/issues/1077
-    var fnPath = path.get("value");
-    if (fnPath.scope.hasOwnBinding(this.classRef.name)) {
-      fnPath.scope.rename(this.classRef.name);
-    }
-
-    if (this.isNativeSuper) {
-      fnPath.traverse(constructorVisitor, this.nativeSuperRef);
-    }
-
-    var construct = this.constructor;
-    var fn        = method.value;
-
-    this.userConstructorPath = fnPath;
-    this.userConstructor     = fn;
-    this.hasConstructor      = true;
-
-    t.inheritsComments(construct, method);
-
-    construct._ignoreUserWhitespace = true;
-    construct.params                = fn.params;
-
-    t.inherits(construct.body, fn.body);
+  get classClosure() {
+    var classClosure = Object.getOwnPropertyDescriptor(ClassTransformer.prototype, 'classClosure').get;
+    return t.expressionStatement(t.assignmentExpression("=",
+      this.namespace,
+      classClosure.call(this)
+    ));
+  }
+  get classMembers() {
+    return [t.expressionStatement(t.callExpression(
+      t.memberExpression(t.identifier('E56'), t.identifier('polyfill')), [
+        this.classReference, t.objectExpression(this.members)
+      ]))];
   }
 }

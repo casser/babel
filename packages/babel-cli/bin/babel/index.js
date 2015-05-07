@@ -34,9 +34,11 @@ each(options, function (option, key) {
   if (option.description) desc.push(option.description);
 
   commander.option(arg, desc.join(" "));
-})
+});
 
 commander.option("-w, --watch", "Recompile files on changes");
+commander.option("-A, --ast [out|src]", "Write parsed AST for source, output or both");
+commander.option("-R, --ranges", "Write AST node location ranges");
 commander.option("-o, --out-file [out]", "Compile all input files into a single file");
 commander.option("-d, --out-dir [out]", "Compile an input directory of modules into an output directory");
 commander.option("-D, --copy-files", "When compiling a directory copy over non-compilable files");

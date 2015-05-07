@@ -32,7 +32,6 @@ class Array extends Array {
   }
 }
 
-
 assert.equal(Object.commonTest(), 'Object.test Object');
 assert.equal(({A:1}).commonTest(), 'Object.prototype.test Object');
 

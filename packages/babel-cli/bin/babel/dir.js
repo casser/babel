@@ -6,6 +6,21 @@ var fs             = require("fs");
 var _              = require("lodash");
 
 module.exports = function (commander, filenames, opts) {
+
+  function censor(key, value) {
+    if(key.charAt(0)=="_" || key=="tokens"){
+      return undefined;
+    }else
+    if(
+      key=="start" ||
+      key=="loc"   ||
+      key=="range" ||
+      key=="end"
+    ){
+      return commander.ranges ? value:undefined;
+    }
+    return value;
+  }
   var write = function (src, relative) {
     // remove extension and then append back on .js
     relative = relative.replace(/\.(\w*?)$/, "") + ".js";
@@ -21,18 +36,23 @@ module.exports = function (commander, filenames, opts) {
       data.code = util.addSourceMappingUrl(data.code, mapLoc);
       outputFileSync(mapLoc, JSON.stringify(data.map));
     }
-
+    if (commander.ast=='src' || commander.ast===true ) {
+      outputFileSync(dest + "-sast.json", JSON.stringify(JSON.parse(data.original),censor,'  '));
+    }
+    if (commander.ast=='out' || commander.ast===true ) {
+      outputFileSync(dest + "-oast.json",JSON.stringify(data.ast,censor,'  '));
+    }
     outputFileSync(dest, data.code);
-
     console.log(src + " -> " + dest);
+    //console.log(privates);
   };
 
   var handleFile = function (src, filename) {
     if (util.shouldIgnore(src)) return;
-
     if (util.canCompile(filename)) {
       write(src, filename);
-    } else if (commander.copyFiles) {
+    } else
+    if (commander.copyFiles) {
       outputFileSync(path.join(commander.outDir, filename), fs.readFileSync(src));
     }
   };
@@ -44,7 +64,6 @@ module.exports = function (commander, filenames, opts) {
 
     if (stat.isDirectory(filename)) {
       var dirname = filename;
-
       _.each(util.readdir(dirname), function (filename) {
         var src = path.join(dirname, filename);
         handleFile(src, filename);

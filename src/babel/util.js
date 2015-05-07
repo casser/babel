@@ -30,7 +30,7 @@ export function canCompile(filename: string, altExts?: Array<string>) {
   return contains(exts, ext);
 }
 
-canCompile.EXTENSIONS = [".js", ".jsx", ".es6", ".es"];
+canCompile.EXTENSIONS = [".js", ".jsx", ".es6", ".es",".ts"];
 
 export function resolve(loc: string) {
   try {

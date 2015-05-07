@@ -39,7 +39,7 @@ function checkPath(stack, path) {
 }
 
 export default class File {
-  constructor(opts = {}, pipeline) {
+  constructor(opts = {}, pipeline=null) {
     this.dynamicImportTypes = {};
     this.dynamicImportIds   = {};
     this.dynamicImports     = [];
@@ -90,6 +90,7 @@ export default class File {
     "self-global",
     "default-props",
     "instanceof",
+    "E56",
 
     // legacy
     "interop-require",
@@ -183,7 +184,7 @@ export default class File {
     //
 
     if (opts.externalHelpers) {
-      this.set("helpersNamespace", t.identifier("babelHelpers"));
+      this.set("helpersNamespace", t.identifier("ES6"));
     }
 
     return opts;
@@ -304,7 +305,7 @@ export default class File {
     return source;
   }
 
-  addImport(source: string, name?: string, type?: string): Object {
+  addImport(source: string, name: string, type: string): Object {
     name = name || source;
     var id = this.dynamicImportIds[name];
 
@@ -363,7 +364,8 @@ export default class File {
       var runtime   = this.get("helpersNamespace");
       if (generator) {
         return generator(name);
-      } else if (runtime) {
+      } else
+      if (runtime) {
         var id = t.identifier(t.toIdentifier(name));
         return t.memberExpression(runtime, id);
       }
@@ -438,6 +440,7 @@ export default class File {
 
     return parse(parseOpts, code, (tree) => {
       this.log.debug("Parse stop");
+      this.original = JSON.stringify(tree);
       this.transform(tree);
       return this.generate();
     });
@@ -529,13 +532,10 @@ export default class File {
 
     return map;
   }
-
-  generate(): {
-    usedHelpers?: Array<string>;
-    code: string;
-    map?: Object;
-    ast?: Object;
-  } {
+  /**
+   * @return {usedHelpers?: Array<string>;code: string;map?: Object;ast?: Object;}
+   */
+  generate(){
     var opts = this.opts;
     var ast  = this.ast;
 
@@ -543,7 +543,8 @@ export default class File {
       metadata: {},
       code:     "",
       map:      null,
-      ast:      null
+      ast:      null,
+      original: this.original
     };
 
     if (this.opts.metadataUsedHelpers) {

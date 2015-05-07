@@ -43,7 +43,7 @@ export function toSequenceExpression(nodes: Array<Object>, scope: Scope): Object
     var ensureLastUndefined = false;
     var exprs   = [];
 
-    for (let node of (nodes: Array)) {
+    for (let node of nodes) {
       if (t.isExpression(node)) {
         exprs.push(node);
       } else if (t.isExpressionStatement(node)) {
@@ -147,7 +147,7 @@ export function toIdentifier(name: string): string {
  * @returns {Object|Boolean}
  */
 
-export function toStatement(node: Object, ignore?: boolean) {
+export function toStatement(node: Object, ignore: boolean) {
   if (t.isStatement(node)) {
     return node;
   }
@@ -190,10 +190,10 @@ export function toExpression(node: Object): Object {
   if (t.isExpressionStatement(node)) {
     node = node.expression;
   }
-
   if (t.isClass(node)) {
     node.type = "ClassExpression";
-  } else if (t.isFunction(node)) {
+  } else
+  if (t.isFunction(node)) {
     node.type = "FunctionExpression";
   }
 

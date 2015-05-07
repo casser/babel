@@ -138,7 +138,7 @@ export default class Scope {
    * within.
    */
 
-  constructor(path: TraversalPath, parent?: Scope, file?: File) {
+  constructor(path: TraversalPath, parent: Scope, file: File) {
     if (parent && parent.block === path.node) {
       return parent;
     }
@@ -167,7 +167,7 @@ export default class Scope {
    * Description
    */
 
-  traverse(node: Object, opts: Object, state?) {
+  traverse(node: Object, opts: Object, state) {
     traverse(node, opts, this, state, this.path);
   }
 
@@ -209,7 +209,12 @@ export default class Scope {
   _generateUid(name, i) {
     var id = name;
     if (i > 1) id += i;
-    return `_${id}`;
+    if(name.indexOf('E56')==0){
+      return id;
+    }else {
+      return `_${id}`;
+    }
+
   }
 
   /**
@@ -229,7 +234,7 @@ export default class Scope {
    * Description
    */
 
-  generateUidBasedOnNode(parent: Object, defaultName?: String):  Object {
+  generateUidBasedOnNode(parent: Object, defaultName: String):  Object {
     var node = parent;
 
     if (t.isAssignmentExpression(parent)) {
@@ -282,7 +287,7 @@ export default class Scope {
    * Description
    */
 
-  generateMemoisedReference(node: Object, dontPush?: boolean): ?Object {
+  generateMemoisedReference(node: Object, dontPush: boolean): Object {
     if (t.isThisExpression(node) || t.isSuper(node)) {
       return null;
     }
@@ -321,7 +326,7 @@ export default class Scope {
    * Description
    */
 
-  rename(oldName: string, newName: string, block?) {
+  rename(oldName: string, newName: string, block) {
     newName = newName || this.generateUidIdentifier(oldName).name;
 
     var info = this.getBinding(oldName);
@@ -373,7 +378,7 @@ export default class Scope {
    * Description
    */
 
-  toArray(node: Object, i?: number) {
+  toArray(node: Object, i: number) {
     var file = this.file;
 
     if (t.isIdentifier(node)) {

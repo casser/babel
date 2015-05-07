@@ -1,7 +1,7 @@
 var acorn = require("../src/index")
 
-var pp = acorn.Parser.prototype
-var tt = acorn.tokTypes
+var pp = acorn.Parser.prototype;
+var tt = acorn.tokTypes;
 
 pp.isRelational = function (op) {
   return this.type === tt.relational && this.value === op

@@ -28,7 +28,6 @@ program.usage("[options] [ -e script | script.js ] [arguments]");
 program.parse(process.argv);
 
 //
-
 babel.register({
   extensions:   program.extensions,
   blacklist:    program.blacklist,
@@ -123,7 +122,6 @@ function replStart() {
     useGlobal: true
   });
 }
-
 function replEval(code, context, filename, callback) {
   var err;
   var result;
