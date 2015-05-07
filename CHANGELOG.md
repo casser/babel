@@ -13,6 +13,77 @@ _Note: Gaps between patch versions are faulty/broken releases._
 
 See [CHANGELOG - 6to5](CHANGELOG-6to5.md) for the pre-4.0.0 version changelog.
 
+## 5.2.16
+
+ * **Bug Fix**
+  * Fix plugins being disabled when using the whitelist.
+  * Fix correct function scope being passed to `nameMethod.property` when inferring the function name for class methods.
+  * Fix incorrect extensions reference causing weird issues when using the Babel CLI.
+  * Fix destructuring param reference replacements not inheriting from their original param.
+ * **Spec Compliancy**
+  * Fix order that method decorators are ran in.
+
+## 5.2.15
+
+ * **Bug Fix**
+  * Fix initializer descriptor add attempt if it doesn't exist.
+
+## 5.2.14
+
+ * **Bug Fix**
+  * Fix bug with initializer decorators where the descriptors weren't being defined if there was no `initializer` property.
+ * **Internal**
+  * Expose `retainLines` option to CLI.
+  * Fix `retainLines` option not being taken into consideration when doing multiple variable declaration declarators generation.
+  * Expose minified and unminified copies of dist scripts.
+
+## 5.2.13
+
+ * **Bug Fix**
+  * Fix `ExportDeclaration`s being incorrectly removed when using the `utility.deadCodeElimination` transformer.
+  * Fix position of `utility` transformers.
+ * **New Feature**
+  * Add built-in `esquery` support.
+ * **Internal**
+  * Consolidate notion of "virtual types".
+
+## 5.2.12
+
+ * **Polish**
+  * Make UID generation based on module declarations **much** nicer.
+ * **Internal**
+  * Remove internal check for traversal path replacement of self. This is a pattern that **could** come up in the wild and it could lead to pretty nasty code and may lead to internal regressions as the test coverage isn't 100% :( Instead, just put it in the fast path.
+
+## 5.2.11
+
+ * **Internal**
+  * Rename `getModuleName` option to `getModuleId`, doh.
+
+## 5.2.10
+
+ * **Bug Fix**
+  * Fix numerous issues in `replaceWithSourceString`. Thanks [@pangratz](https://github.com/pangratz)!
+ * **New Feature**
+  * Add `getModuleName` option. Thanks [@jayphelps](https://github.com/jayphelps)!
+
+## 5.2.9
+
+ * **Bug Fix**
+  * Fix `_blockHoist` transformer incorrectly sorting nodes on shitty environments that aren't spec compliant in their key order.
+  * Fix broken `parse` API method reference to an undeclared import.
+
+## 5.2.7
+
+ * **Bug Fix**
+  * Move `utility.deadCodeElimination` transformer up to avoid race conditions.
+  * Fix shorthand property scope binding renaming.
+ * **Polish**
+  * Turn helper variable declarations into function declarations if possible.
+ * **Internal**
+  * Removed native inheritance support from classes.
+  * Added `replaceWithSourceString` path API.
+  * Split up `es3.propertyLiterals` and `es3.memberExpressionLiterals` transformers to `minfication.propertyLiterals` and `es3.memberExpressionLiterals`.
+
 ## 5.2.6
 
  * **Internal**

@@ -10,14 +10,14 @@ import * as react from "./react";
 import * as t from "../../types";
 
 export default function (exports, opts) {
-  exports.check = function (node) {
+  exports.shouldVisit = function (node) {
     if (t.isJSX(node)) return true;
     if (react.isCreateClass(node)) return true;
     return false;
   };
 
   exports.JSXIdentifier = function (node, parent) {
-    if (node.name === "this" && t.isReferenced(node, parent)) {
+    if (node.name === "this" && this.isReferenced()) {
       return t.thisExpression();
     } else if (esutils.keyword.isIdentifierNameES6(node.name)) {
       node.type = "Identifier";

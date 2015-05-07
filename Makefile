@@ -3,7 +3,6 @@ BROWSERIFY_CMD = node_modules/browserify/bin/cmd.js
 ISTANBUL_CMD = node_modules/istanbul/lib/cli.js cover
 UGLIFY_CMD = node_modules/uglify-js/bin/uglifyjs
 #UGLIFY_CMD = node_modules/uglify-js/bin/uglifyjs --mangle sort
-JSHINT_CMD = node_modules/jshint/bin/jshint
 MOCHA_CMD = node_modules/mocha/bin/_mocha
 BABEL_CMD = node_modules/babel/bin/babel
 
@@ -83,9 +82,15 @@ publish:
 	npm version $$version --message "v%s"
 
 	make build
-	cp dist/babel.min.js browser.js
-	cp dist/polyfill.min.js browser-polyfill.js
-	cp dist/external-helpers.min.js external-helpers.js
+
+	cp dist/babel.js browser.js
+	cp dist/babel.min.js browser.min.js
+
+	cp dist/polyfill.js browser-polyfill.js
+	cp dist/polyfill.min.js browser-polyfill.min.js
+
+	cp dist/external-helpers.js external-helpers.js
+	cp dist/external-helpers.min.js external-helpers.min.js
 
 	node tools/cache-templates
 	test -f templates.json
@@ -97,7 +102,7 @@ publish:
 	make publish-cli
 	make publish-runtime
 
-	rm -rf templates.json browser.js browser-polyfill.js external-helpers.js
+	rm -rf templates.json browser.js browser.min.js browser-polyfill.js browser-polyfill.min.js external-helpers.js external-helpers.min.js
 
 publish-runtime:
 	cd packages; \

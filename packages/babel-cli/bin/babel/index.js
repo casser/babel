@@ -1,14 +1,15 @@
 #!/usr/bin/env node
 
-var commander = require("commander");
-var transform = require("babel-core").transform;
-var kebabCase = require("lodash/string/kebabCase");
-var options   = require("babel-core").options;
-var util      = require("babel-core").util;
-var each      = require("lodash/collection/each");
-var keys      = require("lodash/object/keys");
-var fs        = require("fs");
-var glob      = require("glob");
+var moduleFormatters = require("babel-core/lib/babel/transformation/modules");
+var commander        = require("commander");
+var transform        = require("babel-core").transform;
+var kebabCase        = require("lodash/string/kebabCase");
+var options          = require("babel-core").options;
+var util             = require("babel-core").util;
+var each             = require("lodash/collection/each");
+var keys             = require("lodash/object/keys");
+var fs               = require("fs");
+var glob             = require("glob");
 
 each(options, function (option, key) {
   if (option.hidden) return;
@@ -36,6 +37,7 @@ each(options, function (option, key) {
   commander.option(arg, desc.join(" "));
 });
 
+commander.option("-x, --extensions [extensions]", "List of extensions to compile when a directory has been input [.es6,.js,.es,.jsx]");
 commander.option("-w, --watch", "Recompile files on changes");
 commander.option("-A, --ast [out|src]", "Write parsed AST for source, output or both");
 commander.option("-R, --ranges", "Write AST node location ranges");
@@ -59,14 +61,20 @@ commander.on("--help", function () {
     console.log();
   };
 
-  outKeys("Transformers", transform.transformers);
-  outKeys("Module formatters", transform.moduleFormatters);
+  outKeys("Transformers", transform.pipeline.transformers);
+  outKeys("Module formatters", moduleFormatters);
 });
 
 var pkg = require("../../package.json");
 commander.version(pkg.version);
 commander.usage("[options] <files ...>");
 commander.parse(process.argv);
+
+//
+
+if (commander.extensions) {
+  commander.extensions = util.arrayify(commander.extensions);
+}
 
 //
 

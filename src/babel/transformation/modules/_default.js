@@ -5,61 +5,65 @@ import object from "../../helpers/object";
 import * as util from  "../../util";
 import * as t from "../../types";
 
-var remapVisitor = {
+var remapVisitor = traverse.explode({
   enter(node, parent, scope, formatter) {
-    var remap = formatter.internalRemap[node.name];
-    if (this.isReferencedIdentifier() && remap) {
-      if (!scope.hasBinding(node.name) || scope.bindingIdentifierEquals(node.name, formatter.localImports[node.name])) {
-        return remap;
-      }
-    }
-
-    if (t.isUpdateExpression(node)) {
-      var exported = formatter.getExport(node.argument, scope);
-
-      if (exported) {
-        this.skip();
-
-        // expand to long file assignment expression
-        var assign = t.assignmentExpression(node.operator[0] + "=", node.argument, t.literal(1));
-
-        // remap this assignment expression
-        var remapped = formatter.remapExportAssignment(assign, exported);
-
-        // we don't need to change the result
-        if (t.isExpressionStatement(parent) || node.prefix) {
-          return remapped;
-        }
-
-        var nodes = [];
-        nodes.push(remapped);
-
-        var operator;
-        if (node.operator === "--") {
-          operator = "+";
-        } else { // "++"
-          operator = "-";
-        }
-        nodes.push(t.binaryExpression(operator, node.argument, t.literal(1)));
-
-        return t.sequenceExpression(nodes);
-      }
-    }
-
     if (node._skipModulesRemap) {
       return this.skip();
     }
   },
 
-  exit(node, parent, scope, formatter) {
-    if (t.isAssignmentExpression(node) && !node._ignoreModulesRemap) {
-      var exported = formatter.getExport(node.left, scope);
-      if (exported) {
-        return formatter.remapExportAssignment(node, exported);
+  Identifier(node, parent, scope, formatter) {
+    var remap = formatter.internalRemap[node.name];
+
+    if (this.isReferencedIdentifier() && remap && node !== remap) {
+      if (!scope.hasBinding(node.name) || scope.bindingIdentifierEquals(node.name, formatter.localImports[node.name])) {
+        return remap;
       }
     }
+  },
+
+  AssignmentExpression: {
+    exit(node, parent, scope, formatter) {
+      if (!node._ignoreModulesRemap) {
+        var exported = formatter.getExport(node.left, scope);
+        if (exported) {
+          return formatter.remapExportAssignment(node, exported);
+        }
+      }
+    }
+  },
+
+  UpdateExpression(node, parent, scope, formatter) {
+    var exported = formatter.getExport(node.argument, scope);
+    if (!exported) return;
+
+    this.skip();
+
+    // expand to long file assignment expression
+    var assign = t.assignmentExpression(node.operator[0] + "=", node.argument, t.literal(1));
+
+    // remap this assignment expression
+    var remapped = formatter.remapExportAssignment(assign, exported);
+
+    // we don't need to change the result
+    if (t.isExpressionStatement(parent) || node.prefix) {
+      return remapped;
+    }
+
+    var nodes = [];
+    nodes.push(remapped);
+
+    var operator;
+    if (node.operator === "--") {
+      operator = "+";
+    } else { // "++"
+      operator = "-";
+    }
+    nodes.push(t.binaryExpression(operator, node.argument, t.literal(1)));
+
+    return t.sequenceExpression(nodes);
   }
-};
+});
 
 var importsVisitor = {
   ImportDeclaration: {
@@ -184,7 +188,10 @@ export default class DefaultFormatter {
 
   getModuleName() {
     var opts = this.file.opts;
-    if (opts.moduleId) return opts.moduleId;
+    // moduleId is n/a if a `getModuleId()` is provided
+    if (opts.moduleId && !opts.getModuleId) {
+      return opts.moduleId;
+    }
 
     var filenameRelative = opts.filenameRelative;
     var moduleName = "";
@@ -213,7 +220,12 @@ export default class DefaultFormatter {
     // normalize path separators
     moduleName = moduleName.replace(/\\/g, "/");
 
-    return moduleName;
+    if (opts.getModuleId) {
+      // If return is falsy, assume they want us to use our generated default name
+      return opts.getModuleId(moduleName) || moduleName;
+    } else {
+      return moduleName;
+    }
   }
 
   _pushStatement(ref, nodes) {

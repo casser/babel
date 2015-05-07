@@ -63,6 +63,7 @@ exports.Function = function (node, parent, scope, file) {
 
     hasDestructuring = true;
     var ref = scope.generateUidIdentifier("ref");
+    t.inherits(ref, pattern);
 
     var destructuring = new DestructuringTransformer({
       blockHoist: node.params.length - i,
@@ -82,7 +83,7 @@ exports.Function = function (node, parent, scope, file) {
 
   var block = node.body;
   block.body = nodes.concat(block.body);
-  return node;
+  this.checkSelf();
 };
 
 export function CatchClause(node, parent, scope, file) {
@@ -104,7 +105,7 @@ export function CatchClause(node, parent, scope, file) {
 
   node.body.body = nodes.concat(node.body.body);
 
-  return node;
+  this.checkSelf();
 }
 
 export function ExpressionStatement(node, parent, scope, file) {

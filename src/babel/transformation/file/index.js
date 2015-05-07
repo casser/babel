@@ -436,17 +436,12 @@ export default class File {
 
     this.log.debug("Parse start");
 
-    //
-
-    return parse(parseOpts, code, (tree) => {
-      this.log.debug("Parse stop");
-      this.original = JSON.stringify(tree);
-      this.transform(tree);
-      return this.generate();
-    });
+    var tree = parse(code, parseOpts);
+    this.log.debug("Parse stop");
+    return tree;
   }
 
-  setAst(ast) {
+  _addAst(ast) {
     this.path  = TraversalPath.get(null, null, ast, ast, "program", this);
     this.scope = this.path.scope;
     this.ast   = ast;
@@ -462,9 +457,9 @@ export default class File {
     });
   }
 
-  transform(ast) {
+  addAst(ast) {
     this.log.debug("Start set AST");
-    this.setAst(ast);
+    this._addAst(ast);
     this.log.debug("End set AST");
 
     this.log.debug("Start prepass");
@@ -485,6 +480,66 @@ export default class File {
     this.call("post");
   }
 
+  wrap(code, callback) {
+    code = code + "";
+
+    try {
+      if (this.shouldIgnore()) {
+        return {
+          metadata: {},
+          code:     code,
+          map:      null,
+          ast:      null
+        };
+      }
+
+      callback();
+
+      return this.generate();
+    } catch (err) {
+      if (err._babel) {
+        throw err;
+      } else {
+        err._babel = true;
+      }
+
+      var message = err.message = `${this.opts.filename}: ${err.message}`;
+
+      var loc = err.loc;
+      if (loc) {
+        err.codeFrame = codeFrame(code, loc.line, loc.column + 1, this.opts);
+        message += "\n" + err.codeFrame;
+      }
+
+      if (err.stack) {
+        var newStack = err.stack.replace(err.message, message);
+        try {
+          err.stack = newStack;
+        } catch (e) {
+          // `err.stack` may be a readonly property in some environments
+        }
+      }
+
+      throw err;
+    }
+  }
+
+  addCode(code: string, parseCode?) {
+    code = (code || "") + "";
+    code = this.parseInputSourceMap(code);
+    this.code = code;
+
+    if (parseCode) {
+      this.parseShebang();
+      this.addAst(this.parse(this.code));
+    }
+  }
+
+  shouldIgnore() {
+    var opts = this.opts;
+    return util.shouldIgnore(opts.filename, opts.ignore, opts.only);
+  }
+
   call(key: string) {
     var stack = this.transformerStack;
     for (var i = 0; i < stack.length; i++) {
@@ -494,48 +549,29 @@ export default class File {
     }
   }
 
-  checkPath(path) {
-    if (Array.isArray(path)) {
-      for (var i = 0; i < path.length; i++) {
-        this.checkPath(path[i]);
-      }
-      return;
-    }
-
-    var stack = this.transformerStack;
-
-    checkPath(stack, path);
-
-    path.traverse(checkTransformerVisitor, {
-      stack: stack
-    });
-  }
-
-  mergeSourceMap(map: Object) {
+  parseInputSourceMap(code: string) {
     var opts = this.opts;
 
-    var inputMap = opts.inputSourceMap;
-
-    if (inputMap) {
-      map.sources[0] = inputMap.file;
-
-      var inputMapConsumer   = new sourceMap.SourceMapConsumer(inputMap);
-      var outputMapConsumer  = new sourceMap.SourceMapConsumer(map);
-      var outputMapGenerator = sourceMap.SourceMapGenerator.fromSourceMap(outputMapConsumer);
-      outputMapGenerator.applySourceMap(inputMapConsumer);
-
-      var mergedMap = outputMapGenerator.toJSON();
-      mergedMap.sources = inputMap.sources
-      mergedMap.file    = inputMap.file;
-      return mergedMap;
+    if (opts.inputSourceMap !== false) {
+      var inputMap = convertSourceMap.fromSource(code);
+      if (inputMap) {
+        opts.inputSourceMap = inputMap.toObject();
+        code = convertSourceMap.removeComments(code);
+      }
     }
 
-    return map;
+    return code;
   }
-  /**
-   * @return {usedHelpers?: Array<string>;code: string;map?: Object;ast?: Object;}
-   */
-  generate(){
+
+  parseShebang() {
+    var shebangMatch = shebangRegex.exec(this.code);
+    if (shebangMatch) {
+      this.shebang = shebangMatch[0];
+      this.code = this.code.replace(shebangRegex, "");
+    }
+  }
+
+  generate(): {
     var opts = this.opts;
     var ast  = this.ast;
 
