@@ -1,5 +1,5 @@
 import includes from "lodash/collection/includes";
-import explode from "./explode";
+import { explode } from "./visitors";
 import traverse from "./index";
 import defaults from "lodash/object/defaults";
 import * as messages from "../messages";
@@ -38,54 +38,72 @@ var functionVariableVisitor = {
   }
 };
 
-var programReferenceVisitor = {
-  enter(node, parent, scope, state) {
-    if (t.isReferencedIdentifier(node, parent)) {
-      var bindingInfo = scope.getBinding(node.name);
-      if (bindingInfo) {
-        bindingInfo.reference();
-      } else {
-        state.addGlobal(node);
-      }
-    } else if (t.isLabeledStatement(node)) {
+var programReferenceVisitor = explode({
+  ReferencedIdentifier(node, parent, scope, state) {
+    var bindingInfo = scope.getBinding(node.name);
+    if (bindingInfo) {
+      bindingInfo.reference();
+    } else {
       state.addGlobal(node);
-    } else if (t.isAssignmentExpression(node)) {
-      scope.registerConstantViolation(this.get("left"), this.get("right"));
-    } else if (t.isUpdateExpression(node)) {
-      scope.registerConstantViolation(this.get("argument"), null);
-    } else if (t.isUnaryExpression(node) && node.operator === "delete") {
-      scope.registerConstantViolation(this.get("left"), null);
     }
-  }
-};
+  },
 
-var blockVariableVisitor = {
+  ExportDeclaration(node, parent, scope, state) {
+    var declar = node.declaration;
+    if (t.isClassDeclaration(declar) || t.isFunctionDeclaration(declar)) {
+      scope.getBinding(declar.id.name).reference();
+    } else if (t.isVariableDeclaration(declar)) {
+      for (var decl of (declar.declarations: Array)) {
+        scope.getBinding(decl.id.name).reference();
+      }
+    }
+  },
+
+  LabeledStatement(node, parent, scope, state) {
+    state.addGlobal(node);
+  },
+
+  AssignmentExpression(node, parent, scope, state) {
+    scope.registerConstantViolation(this.get("left"), this.get("right"));
+  },
+
+  UpdateExpression(node, parent, scope, state) {
+    scope.registerConstantViolation(this.get("argument"), null);
+  },
+
+  UnaryExpression(node, parent, scope, state) {
+    if (node.operator === "delete") scope.registerConstantViolation(this.get("left"), null);
+  }
+});
+
+var blockVariableVisitor = explode({
+  Scope() {
+    this.skip();
+  },
+
   enter(node, parent, scope, state) {
     if (this.isFunctionDeclaration() || this.isBlockScoped()) {
       state.registerDeclaration(this);
     }
-    if (this.isScope()) {
-      this.skip();
-    }
   }
-};
+});
 
 var renameVisitor = explode({
-  Identifier(node, parent, scope, state) {
-    if (this.isReferenced() && node.name === state.oldName) {
-      if (this.parentPath.isProperty() && this.key === "key" && parent.shorthand) {
-        var value = t.identifier(state.newName);;
+  ReferencedIdentifier(node, parent, scope, state) {
+    if (node.name !== state.oldName) return;
 
-        if (parent.value === state.binding) {
-          state.info.identifier = state.binding = value;
-        }
+    if (this.parentPath.isProperty() && this.key === "key" && parent.shorthand) {
+      var value = t.identifier(state.newName);;
 
-        parent.shorthand = false;
-        parent.value = value;
-        parent.key = t.identifier(state.oldName);
-      } else {
-        node.name = state.newName;
+      if (parent.value === state.binding) {
+        state.info.identifier = state.binding = value;
       }
+
+      parent.shorthand = false;
+      parent.value = value;
+      parent.key = t.identifier(state.oldName);
+    } else {
+      node.name = state.newName;
     }
   },
 
@@ -244,12 +262,14 @@ export default class Scope {
 
     var add = function (node) {
       if (t.isModuleDeclaration(node)) {
-        if (node.specifiers && node.specifiers.length) {
+        if (node.source) {
+          add(node.source);
+        } else if (node.specifiers && node.specifiers.length) {
           for (var i = 0; i < node.specifiers.length; i++) {
             add(node.specifiers[i]);
           }
-        } else {
-          add(node.source);
+        } else if (node.declaration) {
+          add(node.declaration);
         }
       } else if (t.isModuleSpecifier(node)) {
         add(node.local);

@@ -47,6 +47,8 @@ export default class TransformerPipeline {
   }
 
   canTransform(transformer, fileOpts) {
+    if (transformer.metadata.plugin) return true;
+
     for (var filter of (this.filters: Array)) {
       var result = filter(transformer, fileOpts);
       if (result != null) return result;
@@ -57,16 +59,19 @@ export default class TransformerPipeline {
 
   transform(code: string, opts?: Object) {
     var file = new File(opts, this);
-    return file.parse(code);
+    return file.wrap(code, function () {
+      file.addCode(code, true);
+    });
   }
 
   transformFromAst(ast, code, opts) {
     ast = normalizeAst(ast);
 
     var file = new File(opts, this);
-    file.addCode(code);
-    file.transform(ast);
-    return file.generate();
+    return file.wrap(code, function () {
+      file.addCode(code);
+      file.addAst(ast);
+    });
   }
 
   _ensureTransformerNames(type: string, rawKeys: Array<string>) {

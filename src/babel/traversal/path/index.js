@@ -1,8 +1,12 @@
 import PathHoister from "./hoister";
+import * as virtualTypes from "./virtual-types";
 import isBoolean from "lodash/lang/isBoolean";
 import isNumber from "lodash/lang/isNumber";
 import isRegExp from "lodash/lang/isRegExp";
 import isString from "lodash/lang/isString";
+import codeFrame from "../../helpers/code-frame";
+import parse from "../../helpers/parse";
+import { explode } from "../visitors";
 import traverse from "../index";
 import includes from "lodash/collection/includes";
 import assign from "lodash/object/assign";
@@ -10,33 +14,33 @@ import extend from "lodash/object/extend";
 import Scope from "../scope";
 import * as t from "../../types";
 
-var hoistVariablesVisitor = {
-  enter(node, parent, scope) {
-    if (this.isFunction()) {
-      return this.skip();
-    }
+var hoistVariablesVisitor = explode({
+  Function() {
+    this.skip();
+  },
 
-    if (this.isVariableDeclaration() && node.kind === "var") {
+  VariableDeclaration(node, parent, scope) {
+    if (node.kind !== "var") return;
+
       var bindings = this.getBindingIdentifiers();
-      for (var key in bindings) {
-        scope.push({ id: bindings[key] });
-      }
-
-      var exprs = [];
-
-      for (var i = 0; i < node.declarations.length; i++) {
-        var declar = node.declarations[i];
-        if (declar.init) {
-          exprs.push(t.expressionStatement(
-            t.assignmentExpression("=", declar.id, declar.init)
-          ));
-        }
-      }
-
-      return exprs;
+    for (var key in bindings) {
+      scope.push({ id: bindings[key] });
     }
+
+    var exprs = [];
+
+    for (var i = 0; i < node.declarations.length; i++) {
+      var declar = node.declarations[i];
+      if (declar.init) {
+        exprs.push(t.expressionStatement(
+          t.assignmentExpression("=", declar.id, declar.init)
+        ));
+      }
+    }
+
+    return exprs;
   }
-};
+});
 
 export default class TraversalPath {
   constructor(parent, container) {
@@ -91,6 +95,22 @@ export default class TraversalPath {
    * Description
    */
 
+  getAncestry() {
+    var ancestry = [];
+
+    var path = this.parentPath;
+    while (path) {
+      ancestry.push(path.node);
+      path = path.parentPath;
+    }
+
+    return ancestry;
+  }
+
+  /**
+   * Description
+   */
+
   queueNode(path) {
     if (this.context) {
       this.context.queue.push(path);
@@ -116,7 +136,7 @@ export default class TraversalPath {
       } else if (this.isStatementOrBlock()) {
         if (this.node) nodes.push(this.node);
         this.container[this.key] = t.blockStatement(nodes);
-        this.checkPaths(this);
+        this.checkSelf();
       } else {
         throw new Error("We don't know what to do with this node type. We were previously a Statement but we can't fit in here?");
       }
@@ -214,7 +234,7 @@ export default class TraversalPath {
       } else if (this.isStatementOrBlock()) {
         if (this.node) nodes.unshift(this.node);
         this.container[this.key] = t.blockStatement(nodes);
-        this.checkPaths(this);
+        this.checkSelf();
       } else {
         throw new Error("We don't know what to do with this node type. We were previously a Statement but we can't fit in here?");
       }
@@ -476,7 +496,29 @@ export default class TraversalPath {
    * Description
    */
 
-  replaceWith(replacement, arraysAllowed) {
+  replaceWithSourceString(replacement) {
+    try {
+      replacement = `(${replacement})`;
+      replacement = parse(replacement);
+    } catch (err) {
+      var loc = err.loc;
+      if (loc) {
+        err.message += " - make sure this is an expression.";
+        err.message += "\n" + codeFrame(replacement, loc.line, loc.column + 1);
+      }
+      throw err;
+    }
+
+    replacement = replacement.program.body[0].expression;
+    traverse.removeProperties(replacement);
+    return this.replaceWith(replacement);
+  }
+
+  /**
+   * Description
+   */
+
+  replaceWith(replacement, whateverAllowed) {
     if (this.removed) {
       throw new Error("You can't replace this node, we've already removed it");
     }
@@ -485,14 +527,38 @@ export default class TraversalPath {
       throw new Error("You passed `path.replaceWith()` a falsy node, use `path.remove()` instead");
     }
 
+    if (this.node === replacement) {
+      return this.checkSelf();
+    }
+
+    // normalise inserting an entire AST
+    if (t.isProgram(replacement)) {
+      replacement = replacement.body;
+      whateverAllowed = true;
+    }
+
     if (Array.isArray(replacement)) {
-      if (arraysAllowed) {
+      if (whateverAllowed) {
         return this.replaceWithMultiple(replacement);
       } else {
         throw new Error("Don't use `path.replaceWith()` with an array of nodes, use `path.replaceWithMultiple()`");
       }
     }
 
+    if (typeof replacement === "string") {
+      if (whateverAllowed) {
+        return this.replaceWithSourceString(replacement);
+      } else {
+        throw new Error("Don't use `path.replaceWith()` with a string, use `path.replaceWithSourceString()`");
+      }
+    }
+
+    // replacing a statement with an expression so wrap it in an expression statement
+    if (this.isPreviousType("Statement") && t.isExpression(replacement)) {
+      replacement = t.expressionStatement(replacement);
+    }
+
+    // replacing an expression with a statement so let's explode it
     if (this.isPreviousType("Expression") && t.isStatement(replacement)) {
       return this.replaceExpressionWithStatements([replacement]);
     }
@@ -507,6 +573,14 @@ export default class TraversalPath {
     // potentially create new scope
     this.setScope();
 
+    this.checkSelf();
+  }
+
+  /**
+   * Description
+   */
+
+  checkSelf() {
     this.checkPaths(this);
   }
 
@@ -606,12 +680,21 @@ export default class TraversalPath {
     if (!node) return;
 
     var opts = this.opts;
-    var fn   = opts[key] || opts;
-    if (opts[node.type]) fn = opts[node.type][key] || fn;
+    var fns  = [].concat(opts[key]);
 
-    // call the function with the params (node, parent, scope, state)
-    var replacement = fn.call(this, node, this.parent, this.scope, this.state);
-    if (replacement) this.replaceWith(replacement, true);
+    if (opts[node.type]) {
+      fns = fns.concat(opts[node.type][key]);
+    }
+
+    for (var fn of (fns: Array)) {
+      if (!fn) continue;
+
+      // call the function with the params (node, parent, scope, state)
+      var replacement = fn.call(this, node, this.parent, this.scope, this.state);
+      if (replacement) this.replaceWith(replacement, true);
+
+      if (this.shouldStop) break;
+    }
   }
 
   /**
@@ -877,46 +960,6 @@ export default class TraversalPath {
    * Description
    */
 
-  isScope(): boolean {
-    return t.isScope(this.node, this.parent);
-  }
-
-  /**
-   * Description
-   */
-
-  isReferencedIdentifier(opts): boolean {
-    return t.isReferencedIdentifier(this.node, this.parent, opts);
-  }
-
-  /**
-   * Description
-   */
-
-  isReferenced(): boolean {
-    return t.isReferenced(this.node, this.parent);
-  }
-
-  /**
-   * Description
-   */
-
-  isBlockScoped(): boolean {
-    return t.isBlockScoped(this.node);
-  }
-
-  /**
-   * Description
-   */
-
-  isVar(): boolean {
-    return t.isVar(this.node);
-  }
-
-  /**
-   * Description
-   */
-
   isPreviousType(type: string): boolean {
     return t.isType(this.type, type);
   }
@@ -1031,8 +1074,15 @@ export default class TraversalPath {
 assign(TraversalPath.prototype, require("./evaluation"));
 assign(TraversalPath.prototype, require("./conversion"));
 
-for (var i = 0; i < t.TYPES.length; i++) {
-  let type = t.TYPES[i];
+for (let type in virtualTypes) {
+  if (type[0] === "_") continue;
+
+  TraversalPath.prototype[`is${type}`] = function (opts) {
+    return virtualTypes[type].checkPath(this, opts);
+  };
+}
+
+for (let type of (t.TYPES: Array)) {
   let typeKey = `is${type}`;
   TraversalPath.prototype[typeKey] = function (opts) {
     return t[typeKey](this.node, opts);
