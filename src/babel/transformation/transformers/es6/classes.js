@@ -9,9 +9,6 @@ import each from "lodash/collection/each";
 import has from "lodash/object/has";
 import * as t from "../../../types";
 
-const PROPERTY_COLLISION_METHOD_NAME = "__initializeProperties";
-
-export var shouldVisit = t.isClass;
 export function ClassDeclaration(node, parent, scope, file) {
   var shim = Decorator.take(node, 'shim');
   if (shim) {
@@ -24,89 +21,11 @@ export function ClassExpression(node, parent, scope, file) {
   return new ClassExpressionTransformer(this, file).run();
 }
 
-var collectPropertyReferencesVisitor = {
-  Identifier: {
-    enter(node, parent, scope, state) {
-      if (this.parentPath.isClassProperty({key: node})) {
-        return;
-      }
-      if (this.isReferenced() && scope.getBinding(node.name) === state.scope.getBinding(node.name)) {
-        state.references[node.name] = true;
-      }
-    }
-  }
-};
-var constructorVisitor = traverse.explode({
-  ThisExpression: {
-    enter(node, parent, scope, ref) {
-      return ref;
-    }
-  },
-
-  Function: {
-    enter(node) {
-      if (!node.shadow) {
-        this.skip();
-      }
-    }
-  }
-});
-var verifyConstructorVisitor = traverse.explode({
-  MethodDefinition: {
-    enter() {
-      this.skip();
-    }
-  },
-
-  Property: {
-    enter(node) {
-      if (node.method) this.skip();
-    }
-  },
-
-  CallExpression: {
-    exit(node, parent, scope, state) {
-      if (this.get("callee").isSuper()) {
-        state.hasBareSuper = true;
-        state.bareSuper = this;
-
-        if (!state.hasSuper) {
-          throw this.errorWithNode("super call is only allowed in derived constructor");
-        }
-      }
-    }
-  },
-
-  FunctionDeclaration: {
-    enter() {
-      this.skip();
-    }
-  },
-
-  FunctionExpression: {
-    enter() {
-      this.skip();
-    }
-  },
-
-  ThisExpression: {
-    enter(node, parent, scope, state) {
-      if (state.hasSuper && !state.hasBareSuper) {
-        throw this.errorWithNode("'this' is not allowed before super()");
-      }
-
-      if (state.isNativeSuper) {
-        return state.nativeSuperRef;
-      }
-    }
-  }
-});
 
 class Decorator {
   static has(node, name) {
     return !!Decorator.get(node, name);
   }
-
   static get(node, name) {
     if (node.decorators) {
       for (var i = 0; i < node.decorators.length; i++) {
@@ -116,20 +35,21 @@ class Decorator {
       }
     }
   }
-
   static take(node, name) {
     return Decorator.remove(node, name)[0];
   }
-
   static remove(node, name) {
     return Decorator.all(node, name, true);
   }
-
   static all(node, name, remove) {
     var removed = [];
     if (node.decorators) {
       node.decorators = node.decorators.filter(decorator=> {
-        var match = decorator.expression.name == name;
+        var match = (decorator.expression.name || (
+            decorator.expression.callee
+              ? decorator.expression.callee.name
+              : false
+        )) == name;
         if (match) {
           removed.push(decorator);
         }
@@ -179,7 +99,7 @@ class ClassTransformer {
 
   get superName() {
     return Object.defineProperty(this, 'superName', {
-      value: this.node.superClass || t.identifier("Function")
+      value: this.node.superClass
     }).superName;
   }
 
@@ -189,14 +109,7 @@ class ClassTransformer {
     }).superReference;
   }
 
-  get classClosure() {
-    return Object.defineProperty(this, 'classClosure', {
-      value: t.callExpression(
-        t.functionExpression(null, this.closureParameters, this.closureBody),
-        this.closureArguments
-      )
-    }).classClosure;
-  }
+
 
   get closureParameters() {
     return Object.defineProperty(this, 'closureParameters', {
@@ -247,7 +160,6 @@ class ClassTransformer {
   }
 
   get constructorParameters() {
-    console.info(this.construct);
     return Object.defineProperty(this, 'constructorParameters', {
       value: this.construct ? this.construct.params : []
     }).constructorParameters;
@@ -279,28 +191,57 @@ class ClassTransformer {
   run() {
     this.initMembers();
     this.initConstructor();
-    return this.classClosure;
+    return this.buildClosure();
   }
 
   initConstructor() {
+    var params = [];
+    var body = [];
     if(this.construct){
-      this.construct = this.construct.value;
+      params = this.construct.params;
+      this.construct.body.body.forEach(s=>{
+        body.push(s);
+      });
     }
+    this.construct = t.functionDeclaration(
+      this.node.id,params,
+      t.blockStatement(body)
+    );
+
   }
 
   initMembers() {
+    var classBody = this.node.body.body;
+    var classBodyPaths = this.path.get("body").get("body");
     var p = this.members = [], members = {
       i: [],
       n: {s: {}, i: {}}
     };
-    if (this.node.body.body) {
-      for (var member of this.node.body.body) {
+    if (classBody) {
+      for (var i = 0; i < classBody.length; i++) {
+        var member = classBody[i];
+        var node = classBody[i];
+        var path = classBodyPaths[i];
+        if(t.isMethodDefinition(node)){
+          var replaceSupers = new ReplaceSupers({
+            methodPath: path,
+            methodNode: node,
+            objectRef: this.className,
+            superRef: this.superName,
+            isStatic: node.static,
+            isLoose: this.isLoose,
+            scope: this.scope,
+            file: this.file
+          }, true);
+
+          replaceSupers.replace();
+        }
         if (member.computed) {
           members.i.push(member);
         } else
         if (member.kind == 'constructor') {
           if (!this.construct) {
-            this.construct = member;
+            this.construct = member.value;
           } else {
             throw this.file.errorWithNode(member.key, messages.get("scopeDuplicateDeclaration", key));
           }
@@ -317,12 +258,11 @@ class ClassTransformer {
             member.kind = 'field';
           }
           if (!member.kind) {
-            console.info(member);
+            //console.info(member);
           }
           if (!holder[member.kind]) {
             holder[member.kind] = member;
           } else {
-            console.info(member.kind, holder);
             throw this.file.errorWithNode(member.key, messages.get("scopeDuplicateDeclaration", key));
           }
           if (holder.method && (holder.get || holder.set || holder.field)) {
@@ -342,30 +282,29 @@ class ClassTransformer {
   initMember(key,member) {
     var k,v;
     if (member.method) {
-      k = t.literal('M'+key);
+      k = t.literal(key);
       v = this.initMethod(member.method);
     } else {
-      k = t.literal('P'+key);
+      k = t.literal(key);
       v = this.initField(member.field, member.get, member.set);
     }
     return t.property("init",k,v);
   }
-
   initField(field, getter, setter) {
     var p = [], d = [],m;
     if (getter) {
       if(getter.decorators){
         d = d.concat(getter.decorators.map(d=>d.expression));
       }
-      getter.value.id = t.identifier(getter.key.name + '_get');
-      p.push(t.property("init", t.literal("g"), getter.value))
+      getter.value.id = t.identifier(getter.key.name + '_getter');
+      p.push(t.property("init", t.literal("#g"), getter.value))
     }
     if (setter) {
       if(setter.decorators){
         d = d.concat(setter.decorators.map(d=>d.expression));
       }
-      setter.value.id = t.identifier(setter.key.name + '_set');
-      p.push(t.property("init", t.identifier("s"), setter.value))
+      setter.value.id = t.identifier(setter.key.name + '_setter');
+      p.push(t.property("init", t.identifier("#s"), setter.value))
     }
     if (field) {
       if(field.decorators){
@@ -373,38 +312,94 @@ class ClassTransformer {
       }
       m = ClassTransformer.getMask(field);
       if(m){
-        p.unshift(t.property("init", t.identifier("m"), t.literal(m)));
+        p.unshift(t.property("init", t.identifier("#m"), t.literal(m)));
       }
       if(field.value){
-        field.value = t.functionExpression(field.key, [], t.blockStatement([
+        p.push(t.property("init", t.identifier("#v"), t.functionExpression(null, [], t.blockStatement([
           t.returnStatement(field.value)
-        ]));
-        p.push(t.property("init", t.identifier("v"), field.value));
+        ]))));
       }
+    }
+    if(d.length){
+      p.push(t.property("init", t.identifier("#a"), t.arrayExpression(d)))
     }
     return t.objectExpression(p);
   }
-
   initMethod(member) {
     var p = [], m = ClassTransformer.getMask(member);
     member.value.id = member.key;
     if (member.decorators) {
-      p.unshift(t.property("init", t.literal("a"), t.arrayExpression(
+      p.unshift(t.property("init", t.literal("#a"), t.arrayExpression(
         member.decorators.map(d=>d.expression)
       )));
     }
-    p.push(t.property("init", t.identifier("v"), member.value));
+    p.push(t.property("init", t.identifier("#f"), member.value));
     if(m){
-      p.unshift(t.property("init", t.identifier("m"), t.literal(m)));
+      p.unshift(t.property("init", t.identifier("#m"), t.literal(m)));
     }
-    if(p.length==1 && p[0].key.name=='v'){
-      return p[0].value;
-    }else{
-      return t.objectExpression(p);
-    }
+    return t.objectExpression(p);
   }
-
-
+  initSupers(method){
+    new ReplaceSupers({
+      methodPath  : path,
+      methodNode  : node,
+      objectRef   : this.classRef,
+      superRef    : this.superName,
+      isStatic    : node.static,
+      isLoose     : this.isLoose,
+      scope       : this.scope,
+      file        : this.file
+    }, true).replace();
+  }
+  buildClosure(){
+    var closure = t.functionDeclaration(
+      t.identifier(this.node.id.name+'Class'),
+      [t.identifier('_class')],
+      t.blockStatement([
+        t.returnStatement(this.buildBody())
+      ])
+    );
+    closure._class = this.node.id.name;
+    return closure;
+  }
+  buildBody(){
+    var body = [];
+    //console.info(this.members);
+    var native = Decorator.take(this.node,'native');
+    var override = Decorator.take(this.node,'override');
+    if(override){
+      override = override.expression;
+      var scope = 'local'
+      if(override.arguments){
+        scope = override.arguments[0].value||scope;
+      }
+      body.push(t.property('init',
+        t.identifier('#override'),
+        t.literal(scope)
+      ));
+    }
+    if(!native) {
+      body.push(t.property('init',
+        t.identifier('#constructor'),
+        this.construct
+      ));
+    }
+    if (this.node.decorators) {
+      body.push(t.property("init", t.literal("#decorators"), t.arrayExpression(
+        this.node.decorators.map(d=>d.expression)
+      )))
+    }
+    if(this.superName){
+      body.push(t.property('init',
+        t.identifier('#extend'),
+        this.superName
+      ));
+    }
+    this.members.forEach(m=>{
+      body.push(m)
+    });
+    return t.objectExpression(body);
+  }
 }
 
 class ClassExpressionTransformer extends ClassTransformer {
@@ -422,13 +417,13 @@ class ClassDeclarationTransformer extends ClassTransformer {
   get closureParameters() {
     return [t.identifier('E56P')];
   }
-
+  /*
   get classClosure() {
     var classClosure = Object.getOwnPropertyDescriptor(ClassTransformer.prototype, 'classClosure').get;
     return t.variableDeclaration("var", [
       t.variableDeclarator(this.className, classClosure.call(this))
     ]);
-  }
+  }*/
 }
 class ClassPolyfillTransformer extends ClassTransformer {
   constructor(path:TraversalPath, file:File) {
@@ -457,14 +452,14 @@ class ClassPolyfillTransformer extends ClassTransformer {
       ])
     }).classConstructor;
   }
-
+  /*
   get classClosure() {
     var classClosure = Object.getOwnPropertyDescriptor(ClassTransformer.prototype, 'classClosure').get;
     return t.expressionStatement(t.assignmentExpression("=",
       this.namespace,
       classClosure.call(this)
     ));
-  }
+  }*/
   get classMembers() {
     return [t.expressionStatement(t.callExpression(
       t.memberExpression(t.identifier('E56'), t.identifier('polyfill')), [

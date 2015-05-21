@@ -10,6 +10,8 @@ import resolveRc from "../../tools/resolve-rc";
 import sourceMap from "source-map";
 import transform from "./../index";
 import generate from "../../generation";
+import stringify from "../../helpers/stringify-ast";
+import codeFrame from "../../helpers/code-frame";
 import defaults from "lodash/object/defaults";
 import includes from "lodash/collection/includes";
 import traverse from "../../traversal";
@@ -184,7 +186,7 @@ export default class File {
     //
 
     if (opts.externalHelpers) {
-      this.set("helpersNamespace", t.identifier("ES6"));
+      this.set("helpersNamespace", t.identifier("babelHelpers"));
     }
 
     return opts;
@@ -235,48 +237,6 @@ export default class File {
 
     // register
     this.transformerStack = stack.concat(secondaryStack);
-  }
-
-  getModuleFormatter(type: string) {
-    var ModuleFormatter = isFunction(type) ? type : moduleFormatters[type];
-
-    if (!ModuleFormatter) {
-      var loc = util.resolveRelative(type);
-      if (loc) ModuleFormatter = require(loc);
-    }
-
-    if (!ModuleFormatter) {
-      throw new ReferenceError(`Unknown module formatter type ${JSON.stringify(type)}`);
-    }
-
-    return new ModuleFormatter(this);
-  }
-
-  parseInputSourceMap(code: string) {
-    var opts = this.opts;
-
-    if (opts.inputSourceMap !== false) {
-      var inputMap = convertSourceMap.fromSource(code);
-      if (inputMap) {
-        opts.inputSourceMap = inputMap.toObject();
-        code = convertSourceMap.removeComments(code);
-      }
-    }
-
-    return code;
-  }
-
-  parseShebang(code: string) {
-    var shebangMatch = shebangRegex.exec(code);
-
-    if (shebangMatch) {
-      this.shebang = shebangMatch[0];
-
-      // remove shebang
-      code = code.replace(shebangRegex, "");
-    }
-
-    return code;
   }
 
   set(key: string, val): any {
@@ -364,21 +324,31 @@ export default class File {
       var runtime   = this.get("helpersNamespace");
       if (generator) {
         return generator(name);
-      } else
-      if (runtime) {
+      } else if (runtime) {
         var id = t.identifier(t.toIdentifier(name));
         return t.memberExpression(runtime, id);
       }
     }
 
     var ref = util.template("helper-" + name);
-    ref._compact = true;
+
     var uid = this.declarations[name] = this.scope.generateUidIdentifier(name);
-    this.scope.push({
-      id: uid,
-      init: ref,
-      unique: true
-    });
+
+    if (t.isFunctionExpression(ref) && !ref.id) {
+      ref.body._compact = true;
+      ref._generated = true;
+      ref.id = uid;
+      ref.type = "FunctionDeclaration";
+      this.path.unshiftContainer("body", ref);
+    } else {
+      ref._compact = true;
+      this.scope.push({
+        id: uid,
+        init: ref,
+        unique: true
+      });
+    }
+
     return uid;
   }
 
@@ -389,30 +359,62 @@ export default class File {
     return err;
   }
 
-  addCode(code: string) {
-    code = (code || "") + "";
-    code = this.parseInputSourceMap(code);
-    this.code = code;
-    return this.parseShebang(code);
+  checkPath(path) {
+    if (Array.isArray(path)) {
+      for (var i = 0; i < path.length; i++) {
+        this.checkPath(path[i]);
+      }
+      return;
+    }
+
+    var stack = this.transformerStack;
+
+    checkPath(stack, path);
+
+    path.traverse(checkTransformerVisitor, {
+      stack: stack
+    });
   }
 
-  shouldIgnore() {
+  mergeSourceMap(map: Object) {
     var opts = this.opts;
-    return util.shouldIgnore(opts.filename, opts.ignore, opts.only);
+
+    var inputMap = opts.inputSourceMap;
+
+    if (inputMap) {
+      map.sources[0] = inputMap.file;
+
+      var inputMapConsumer   = new sourceMap.SourceMapConsumer(inputMap);
+      var outputMapConsumer  = new sourceMap.SourceMapConsumer(map);
+      var outputMapGenerator = sourceMap.SourceMapGenerator.fromSourceMap(outputMapConsumer);
+      outputMapGenerator.applySourceMap(inputMapConsumer);
+
+      var mergedMap = outputMapGenerator.toJSON();
+      mergedMap.sources = inputMap.sources
+      mergedMap.file    = inputMap.file;
+      return mergedMap;
+    }
+
+    return map;
+  }
+
+
+  getModuleFormatter(type: string) {
+    var ModuleFormatter = isFunction(type) ? type : moduleFormatters[type];
+
+    if (!ModuleFormatter) {
+      var loc = util.resolveRelative(type);
+      if (loc) ModuleFormatter = require(loc);
+    }
+
+    if (!ModuleFormatter) {
+      throw new ReferenceError(`Unknown module formatter type ${JSON.stringify(type)}`);
+    }
+
+    return new ModuleFormatter(this);
   }
 
   parse(code: string) {
-    if (this.shouldIgnore()) {
-      return {
-        metadata: {},
-        code:     code,
-        map:      null,
-        ast:      null
-      };
-    }
-
-    code = this.addCode(code);
-
     var opts = this.opts;
 
     //
@@ -445,7 +447,7 @@ export default class File {
     this.path  = TraversalPath.get(null, null, ast, ast, "program", this);
     this.scope = this.path.scope;
     this.ast   = ast;
-
+    this.sast  = JSON.parse(JSON.ast(ast));
     this.path.traverse({
       enter(node, parent, scope) {
         if (this.isScope()) {
@@ -524,7 +526,7 @@ export default class File {
     }
   }
 
-  addCode(code: string, parseCode?) {
+  addCode(code: string, parseCode) {
     code = (code || "") + "";
     code = this.parseInputSourceMap(code);
     this.code = code;
@@ -571,9 +573,10 @@ export default class File {
     }
   }
 
-  generate(): {
+  generate(){
     var opts = this.opts;
     var ast  = this.ast;
+    var sast  = this.sast;
 
     var result = {
       metadata: {},
@@ -587,7 +590,10 @@ export default class File {
       result.metadata.usedHelpers = Object.keys(this.usedHelpers);
     }
 
-    if (opts.ast) result.ast = ast;
+    if (opts.ast) {
+      result.ast = ast;
+      result.sast = sast;
+    }
     if (!opts.code) return result;
 
     this.log.debug("Generation start");
