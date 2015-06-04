@@ -18,17 +18,16 @@ export { version } from "../../../package";
 import * as t from "../types";
 export { t as types };
 
-export function register(opts?: Object) {
+export function register(opts:Object) {
   var callback = require("./register/node-polyfill");
   if (opts != null) callback(opts);
   return callback;
 }
-
 export function polyfill() {
   require("../polyfill");
 }
 
-export function transformFile(filename: string, opts?: Object, callback: Function) {
+export function transformFile(filename: string, opts: Object, callback: Function) {
   if (isFunction(opts)) {
     callback = opts;
     opts = {};
@@ -50,12 +49,10 @@ export function transformFile(filename: string, opts?: Object, callback: Functio
     callback(null, result);
   });
 }
-
-export function transformFileSync(filename: string, opts?: Object = {}) {
+export function transformFileSync(filename: string, opts: Object = {}) {
   opts.filename = filename;
   return transform(fs.readFileSync(filename, "utf8"), opts);
 }
-
 export function parse(code, opts = {}) {
   opts.allowHashBang = true;
   opts.sourceType = "module";

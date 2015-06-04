@@ -86,11 +86,11 @@ export default class AsxFormatter extends DefaultFormatter {
           }else
           if(item._class){
             item.id =t.identifier('c$'+item._class);
-            body.push(t.callExpression(
+            body.push(t.expressionStatement(t.callExpression(
               t.memberExpression(
                 t.identifier('asx'),
                 t.identifier('c$')
-              ),[item]));
+              ),[item])));
             return;
           }else{
             locals.push(item.id);
@@ -105,14 +105,15 @@ export default class AsxFormatter extends DefaultFormatter {
 
 
     if(Object.keys(this.imports).length){
+
       Object.keys(this.imports).forEach(key=>{
         var items = this.imports[key];
-        if(items['*'] && Object.keys(items['*']).length==1){
+        if(items['*'] && typeof items['*']=='string'){
           this.imports[key]=items['*'];
         }
       });
       definer.push(t.property('init',
-        t.literal('imports'),
+        t.identifier('imports'),
         t.valueToNode(this.imports)
       ))
     }
@@ -123,7 +124,7 @@ export default class AsxFormatter extends DefaultFormatter {
     }
     if(Object.keys(this.exports).length){
       definer.push(t.property('init',
-        t.literal('exports'),
+        t.identifier('exports'),
         t.valueToNode(this.exports)
       ))
     }
@@ -132,10 +133,15 @@ export default class AsxFormatter extends DefaultFormatter {
         var ret = [];
         Object.keys(exports).forEach(key=>{
           var val = exports[key];
-          ret.push(t.property('init',
-            t.identifier(key),t.identifier(val=='*'?key:val)
-          ))
-
+          if(typeof val=='string') {
+            ret.push(t.property('init',
+              t.literal(key), t.identifier(val == '*' ? key : val)
+            ))
+          }else{
+            ret.push(t.property('init',
+              t.literal(key), val
+            ))
+          }
         });
         body.push(t.returnStatement(
           t.objectExpression(ret)
@@ -143,7 +149,7 @@ export default class AsxFormatter extends DefaultFormatter {
       }
       var initializer  = t.functionExpression(null, [t.identifier('asx')], t.blockStatement(body));
       definer.push(t.property('init',
-        t.literal('execute'),
+        t.identifier('execute'),
         initializer
       ))
     }
@@ -186,7 +192,7 @@ export default class AsxFormatter extends DefaultFormatter {
     if(options.runtime){
       var rt = util.template("asx-runtime")
       //rt._compact = true;
-      body.push(rt)
+      body.push(t.expressionStatement(rt));
     }
     body.push(t.expressionStatement(definer))
     program.body = body;
@@ -212,7 +218,6 @@ export default class AsxFormatter extends DefaultFormatter {
         imp['#'] = specifier.local.name;
       break;
       case 'ImportSpecifier' :
-
         var imported = specifier.imported.name;
         var local = specifier.local.name;
         if(imported == local){
@@ -227,8 +232,13 @@ export default class AsxFormatter extends DefaultFormatter {
     this.getExport(node.source.value)['*'] = '*';
   }
   exportDeclaration(node, nodes) {
-    console.info("Declaration");
-    JSON.ast_print(node);
+    //console.info("Declaration");
+    switch(node.type){
+      case 'ExportDefaultDeclaration' :
+        var exp = this.getExport();
+        exp['#'] = node.declaration;
+    }
+    //JSON.ast_print(node);
   }
   exportSpecifier(specifier, node, nodes) {
     var exp = this.getExport(node.source?node.source.value:false);

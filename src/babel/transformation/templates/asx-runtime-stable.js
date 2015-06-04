@@ -1,6 +1,6 @@
 (function module(){
   var global = this;
-  var private = {'ns':'private'};
+  var locker = {'ns':'private'};
 
   var extend = function extend(d, b) {
     for (var p in b) if (b.hasOwnProperty(p)) d[p] = b[p];
@@ -93,7 +93,7 @@
   });
   var Member        = define({
     '*:new'               : function Member(ns,owner,key,def){
-      if(private !== ns){
+      if(locker !== ns){
         throw new Error('should not call direct constructor');
       }
       this.modifiers = 0;
@@ -184,9 +184,9 @@
         var d = Member.descriptor(clazz,key);
         if(d){
           if(typeof d.value =='function'){
-            member = new Method(private,clazz,key);
+            member = new Method(locker,clazz,key);
           }else{
-            member = new Field(private,clazz,key);
+            member = new Field(locker,clazz,key);
           }
           clazz[key]=member;
         }
@@ -201,10 +201,10 @@
         def = {'#v':def}
       }
       if(def.hasOwnProperty('#f')){
-        return clazz[key] = new Method(private,clazz,key,def);
+        return clazz[key] = new Method(locker,clazz,key,def);
       }else
       if(def.hasOwnProperty('#v')){
-        return clazz[key] = new Field(private,clazz,key,def);
+        return clazz[key] = new Field(locker,clazz,key,def);
       }
     },
     'f:isHidden'          : function isHidden(member){

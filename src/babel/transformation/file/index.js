@@ -433,7 +433,7 @@ export default class File {
     }
 
     parseOpts.looseModules = this.isLoose("es6.modules");
-    parseOpts.strictMode = features.strict;
+    parseOpts.strictMode = false;//features.strict;
     parseOpts.sourceType = "module";
 
     this.log.debug("Parse start");
@@ -444,12 +444,22 @@ export default class File {
   }
 
   _addAst(ast) {
+
     this.path  = TraversalPath.get(null, null, ast, ast, "program", this);
     this.scope = this.path.scope;
     this.ast   = ast;
     this.sast  = JSON.parse(JSON.ast(ast));
+    var deps = {}
     this.path.traverse({
       enter(node, parent, scope) {
+        if(this.isImportDeclaration()){
+          deps[node.source.value] = true;
+        }
+        if(this.isExportDeclaration()){
+          if(node.source){
+            deps[node.source.value] = true;
+          }
+        }
         if (this.isScope()) {
           for (var key in scope.bindings) {
             scope.bindings[key].setTypeAnnotation();
@@ -457,6 +467,7 @@ export default class File {
         }
       }
     });
+    this.deps = Object.keys(deps);
   }
 
   addAst(ast) {
@@ -583,7 +594,7 @@ export default class File {
       code:     "",
       map:      null,
       ast:      null,
-      original: this.original
+      deps: this.deps
     };
 
     if (this.opts.metadataUsedHelpers) {

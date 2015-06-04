@@ -49,7 +49,7 @@ export default class TransformerPipeline {
   canTransform(transformer, fileOpts) {
     if (transformer.metadata.plugin) return true;
 
-    for (var filter of (this.filters: Array)) {
+    for (var filter of this.filters) {
       var result = filter(transformer, fileOpts);
       if (result != null) return result;
     }
@@ -57,7 +57,7 @@ export default class TransformerPipeline {
     return true;
   }
 
-  transform(code: string, opts?: Object) {
+  transform(code: string, opts: Object) {
     var file = new File(opts, this);
     return file.wrap(code, function () {
       file.addCode(code, true);

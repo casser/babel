@@ -16,6 +16,9 @@ export function ForOfStatement(node, parent, scope, file) {
 export { ForOfStatement as ForInStatement };
 
 export function MethodDefinition(node) {
+  if(node.kind=='method' && t.isIdentifier(node.key) && node.key.name=='constructor'){
+    node.kind = 'constructor';
+  }
   if (node.kind !== "constructor") {
     // get constructor() {}
     var isConstructor = !node.computed && t.isIdentifier(node.key, { name: "constructor" });

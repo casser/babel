@@ -194,8 +194,6 @@ export default class ReplaceSupers {
         }else{
           var c = path.parentPath.parentPath.node
           var s = path.parentPath.parentPath.parentPath.node
-          console.info(c.type);
-          console.info();
           s.body.splice(s.body.indexOf(c)+1,0,t.expressionStatement(
             t.callExpression(
               t.memberExpression(t.identifier('_class'),t.identifier('defaults')),

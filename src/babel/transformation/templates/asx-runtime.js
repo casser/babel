@@ -3,19 +3,27 @@
   var locker  = {};
   var modules = Object.create(null);
   function Definer(module){
-    this.c$ = this.defineClass.bind(module);
+    if(this.defineClass){
+      this.c$ = this.defineClass.bind(module);
+    }else{
+      this.c$ = this.definePolyfill.bind(module);
+    }
   }
-  Definer.prototype.defineClass = function defineClass(def){
+  Definer.prototype.definePolyfill = function defineClass(def){
     var name = def.name.substring(2);
+    var self  = this;
     var scope = this.scope;
     function declare(D) {
       var C = D['#constructor'];
+      var I = D['#initializer'];
       var P = D['#extend'];
       var N = D['#override'];
       if(!C){
         C = global[name];
       }
-
+      if(I){
+        C['#initializer'] = I;
+      }
       if(N){
         switch(N){
           case 'local':Object.defineProperty(scope,name,{
@@ -43,27 +51,42 @@
         var n = k.substring(1);
         if (s == '.' || s == ':') {
           h = s == ':' ? C : C.prototype;
-
-
           if (d['#f']) {
             x.value = d['#f'];
             x.enumerable = false;
-            x.writable = false;
+            x.writable = true;
           } else if (d['#v'] || d['#g'] || d['#s']) {
+            delete x.writable;
             x.enumerable = true;
 
             if (d['#g'] || d['#s']) {
-              delete x.writable;
               if (d['#g']) {
                 x.get = d['#g'];
               }
-
               if (d['#s']) {
                 x.set = d['#s'];
               }
             } else {
               if (d['#v']) {
-                x.value = d['#v']();
+                x.configurable=true;
+                x.get = function value_getter() {
+                  delete this[n];
+                  return Object.defineProperty(this,n,{
+                    writable:true,
+                    enumerable:true,
+                    configurable:true,
+                    value : d['#v']()
+                  })[n];
+                };
+                x.set = function value_setter(v) {
+                  delete this[n];
+                  return Object.defineProperty(this,n,{
+                    writable:true,
+                    enumerable:true,
+                    configurable:true,
+                    value : v
+                  })[n];
+                };
               }
             }
           } else {}
@@ -74,8 +97,13 @@
       return C;
     }
     function extend(d, b) {
+      /*Object.getOwnPropertyNames(b).forEach(p=>{
+        if(!Object.getOwnPropertyDescriptor(d,p)) {
+          Object.defineProperty(d, b, Object.getOwnPropertyDescriptor(b, p));
+        }
+      })*/
       for (var p in b) if (b.hasOwnProperty(p)) d[p] = b[p];
-      d.__proto__ = b.__proto__;
+      //d.__proto__ = b.__proto__;
       function __() {
         this.constructor = d;
       }
@@ -85,8 +113,8 @@
     function definer(){
       var s = {};
       var c = declare(def(s));
-      if(c.class && c.initialize){
-        c.initialize(s);
+      if(c.class && c.class.initialize){
+        c.class.initialize(s,self);
       }
       return Object.defineProperty(this,name,{
         value : c
