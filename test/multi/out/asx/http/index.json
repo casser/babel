@@ -1,0 +1,8 @@
+{
+  "project" : "http",
+  "group"   : "asx",
+  "version" : "0.0.2",
+  "dependencies" : [
+    "asx:core:0.0.1"
+  ]
+}
