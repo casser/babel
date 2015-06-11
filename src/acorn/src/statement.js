@@ -119,7 +119,7 @@ pp.parseDecorators = function(allowExport) {
   }
 
   if (this.type !== tt._class) {
-    this.raise(this.start, "Leading decorators must be attached to a class declaration");
+    this.raise(this.start, "Leading decorators must be attached to a class declaration "+JSON.stringify(this.type));
   }
 }
 
@@ -127,8 +127,20 @@ pp.parseDecorator = function(allowExport) {
   if (!this.options.features["es7.decorators"]) {
     this.unexpected()
   }
-  let node = this.startNode()
-  this.next()
+  let node = this.startNode();
+  if(this.fullCharCodeAtPos()==32){
+    this.next();
+    return this.finishNode(node, "Decorator")
+  }
+  this.next();
+  if(this.type === tt.at){
+    node.compiler = true;
+    if(this.fullCharCodeAtPos()==32){
+      this.next();
+      return this.finishNode(node, "Decorator")
+    }
+    this.next();
+  }
   node.expression = this.parseMaybeAssign()
   return this.finishNode(node, "Decorator")
 }
