@@ -23,6 +23,7 @@ export function ClassExpression(node, parent, scope, file) {
 
 
 class Decorator {
+
   static has(node, name) {
     return !!Decorator.get(node, name);
   }
@@ -38,18 +39,32 @@ class Decorator {
   static take(node, name) {
     return Decorator.remove(node, name)[0];
   }
-  static remove(node, name) {
-    return Decorator.all(node, name, true);
+  static removeCompilerDecoratator(node){
+    return this.remove(node,d=>(d.compiler||!d.expression));
   }
-  static all(node, name, remove) {
+  static remove(node, filter) {
+    return Decorator.all(node, filter, true);
+  }
+
+  static all(node, check, remove) {
     var removed = [];
     if (node.decorators) {
+      var filter = check;
+      if(typeof filter=='string'){
+        filter = (decorator)=>{
+          var name = ''
+          if(decorator.expression){
+            if(decorator.expression.callee){
+              name = decorator.expression.callee.name;
+            }else{
+              name = decorator.expression.name;
+            }
+          }
+          return check === name;
+        }
+      }
       node.decorators = node.decorators.filter(decorator=> {
-        var match = (decorator.expression.name || (
-            decorator.expression.callee
-              ? decorator.expression.callee.name
-              : false
-        )) == name;
+        var match = filter(decorator);
         if (match) {
           removed.push(decorator);
         }
@@ -318,6 +333,7 @@ class ClassTransformer {
     var p = [], d = [],m;
     if (getter) {
       if(getter.decorators){
+        Decorator.removeCompilerDecoratator(getter)
         d = d.concat(getter.decorators.map(d=>d.expression));
       }
       getter.value.id = t.identifier(getter.key.name + '_getter');
@@ -325,6 +341,7 @@ class ClassTransformer {
     }
     if (setter) {
       if(setter.decorators){
+        Decorator.removeCompilerDecoratator(setter)
         d = d.concat(setter.decorators.map(d=>d.expression));
       }
       setter.value.id = t.identifier(setter.key.name + '_setter');
@@ -332,6 +349,7 @@ class ClassTransformer {
     }
     if (field) {
       if(field.decorators){
+        Decorator.removeCompilerDecoratator(field)
         d = d.concat(field.decorators.map(d=>d.expression));
       }
       m = ClassTransformer.getMask(field);
@@ -349,13 +367,21 @@ class ClassTransformer {
     }
     return t.objectExpression(p);
   }
+
   initMethod(member) {
     var p = [], m = ClassTransformer.getMask(member);
     member.value.id = member.key;
     if (member.decorators) {
+      Decorator.all(member,'decorator').forEach(d=>{
+        d.expression = t.memberExpression(t.identifier('Asx'),d.expression);
+      });
+      Decorator.removeCompilerDecoratator(member);
       p.unshift(t.property("init", t.literal("#a"), t.arrayExpression(
         member.decorators.map(d=>d.expression)
       )));
+    }
+    if(member.value.id.name=='default'){
+      member.value.id = t.identifier('_default');
     }
     p.push(t.property("init", t.identifier("#f"), member.value));
     if(m){

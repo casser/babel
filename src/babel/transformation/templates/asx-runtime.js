@@ -18,12 +18,12 @@
       var I = D['#initializer'];
       var P = D['#extend'];
       var N = D['#override'];
+      var A = D['#decorators'];
+
       if(!C){
         C = global[name];
       }
-      if(I){
-        C['#initializer'] = I;
-      }
+
       if(N){
         switch(N){
           case 'local':Object.defineProperty(scope,name,{
@@ -39,32 +39,52 @@
         }
       }
 
+      C['#decorators'] = {};
+      if(I){
+        C['#initializer'] = I;
+      }
+      if(A){
+        A = A.filter(function(a){return !!a})
+        if(A.length){
+          C['#decorators']['#'] = A;
+        }
+      }
       if(P){
         extend(C, P);
       }
 
       Object.keys(D).forEach(function (k) {
         var x = {configurable:true,writable:true};
-        var h;
+        var h,o;
         var d = D[k];
+        var a = d['#a'];
         var s = k.charAt(0);
         var n = k.substring(1);
+        if(a){
+          a = a.filter(function(a){return !!a});
+          if(a.length){
+            C['#decorators'][k] = a;
+          }
+        }
         if (s == '.' || s == ':') {
           h = s == ':' ? C : C.prototype;
+          d['#o'] = Object.getOwnPropertyDescriptor(h, n);
           if (d['#f']) {
             x.value = d['#f'];
             x.enumerable = false;
             x.writable = true;
+            x.value.definition = d;
           } else if (d['#v'] || d['#g'] || d['#s']) {
             delete x.writable;
             x.enumerable = true;
-
             if (d['#g'] || d['#s']) {
               if (d['#g']) {
                 x.get = d['#g'];
+                x.get.definition = d;
               }
               if (d['#s']) {
                 x.set = d['#s'];
+                x.set.definition = d;
               }
             } else {
               if (d['#v']) {
@@ -87,6 +107,8 @@
                     value : v
                   })[n];
                 };
+                x.get.definition = d;
+                x.set.definition = d;
               }
             }
           } else {}
@@ -94,6 +116,10 @@
           Object.defineProperty(h, n, x);
         }
       });
+
+      if(Object.keys(C['#decorators']).length<=0){
+        delete C['#decorators'];
+      }
       return C;
     }
     function extend(d, b) {
@@ -102,7 +128,11 @@
           Object.defineProperty(d, b, Object.getOwnPropertyDescriptor(b, p));
         }
       })*/
-      for (var p in b) if (b.hasOwnProperty(p)) d[p] = b[p];
+      for (var p in b){
+        if (d.hasOwnProperty(p)){
+          d[p] = b[p];
+        }
+      }
       //d.__proto__ = b.__proto__;
       function __() {
         this.constructor = d;
