@@ -620,6 +620,63 @@ testFail("function foo(promise) { await promise; }", "Unexpected token (1:30)", 
   features: { "es7.asyncFunctions": true }
 });
 
+testFail("var x = async\n(x) => x + 1;", "Unexpected token (2:4)", {
+  ecmaVersion: 7,
+  features: { "es7.asyncFunctions": true }
+});
+
+test("async\nfunction foo() {}", {
+  type: "Program",
+  body: [
+    {
+      type: "ExpressionStatement",
+      expression: {
+        type: "Identifier",
+        name: "async",
+        loc: {
+          start: {line: 1, column: 0},
+          end: {line: 1, column: 5}
+        }
+      },
+      loc: {
+        start: {line: 1, column: 0},
+        end: {line: 1, column: 5}
+      }
+    },
+    {
+      type: "FunctionDeclaration",
+      id: {
+        type: "Identifier",
+        name: "foo",
+        loc: {
+          start: {line: 2, column: 9},
+          end: {line: 2, column: 12}
+        }
+      },
+      params: [],
+      body: {
+        type: "BlockStatement",
+        body: [],
+        loc: {
+          start: {line: 2, column: 15},
+          end: {line: 2, column: 17}
+        }
+      },
+      generator: false,
+      expression: false,
+      async: false,
+      loc: {
+        start: {line: 2, column: 0},
+        end: {line: 2, column: 17}
+      }
+    }
+  ]
+}, {
+  ecmaVersion: 7,
+  features: { "es7.asyncFunctions": true },
+  locations: true
+});
+
 test('async function foo(promise) { await promise; }', {
   type: "Program",
   body: [{
@@ -3248,6 +3305,65 @@ test("function log(n, op, val,) { }", {
       start: 26,
       end: 29,
       body: []
+    }
+  }]
+}, {
+  ecmaVersion: 7,
+  features: { "es7.trailingFunctionCommas": true }
+});
+
+test("class Foo { bar(a,) { } }", {
+  type: "Program",
+  start: 0,
+  end: 25,
+  body: [{
+    type: "ClassDeclaration",
+    start: 0,
+    end: 25,
+    id: {
+      type: "Identifier",
+      name: "Foo",
+      start: 6,
+      end: 9
+    },
+    superClass: null,
+    body: {
+      type: "ClassBody",
+      start: 10,
+      end: 25,
+      body: [{
+        type: "MethodDefinition",
+        start: 12,
+        end: 23,
+        static: false,
+        key: {
+          type: "Identifier",
+          start: 12,
+          end: 15,
+          name: "bar"
+        },
+        kind: "method",
+        value: {
+          type: "FunctionExpression",
+          start: 15,
+          end: 23,
+          id: null,
+          params: [{
+            type: "Identifier",
+            name: "a",
+            start: 16,
+            end: 17
+          }],
+          generator: false,
+          body: {
+            type: "BlockStatement",
+            start: 20,
+            end: 23,
+            body: []
+          },
+          expression: false
+        }
+      }]
     }
   }]
 }, {

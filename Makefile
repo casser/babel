@@ -5,6 +5,7 @@ UGLIFY_CMD = node_modules/uglify-js/bin/uglifyjs
 #UGLIFY_CMD = node_modules/uglify-js/bin/uglifyjs --mangle sort
 MOCHA_CMD = node_modules/mocha/bin/_mocha
 BABEL_CMD = node_modules/babel/bin/babel
+BROWSERIFY_IGNORE = -i esprima-fb
 
 export NODE_ENV = test
 
@@ -14,13 +15,16 @@ build-core: clean-core
 	node $(BABEL_CMD) src --out-dir lib --copy-files
 
 build-core-test: clean-core
-	node $(BABEL_CMD) src --out-dir lib --copy-files --auxiliary-comment "istanbul ignore next"
+	node $(BABEL_CMD) src --out-dir lib --copy-files --auxiliary-comment-before "istanbul ignore next"
 
 watch-core: clean-core
 	node $(BABEL_CMD) src --out-dir lib --watch --copy-files
 
 clean-core:
 	rm -rf lib
+
+lint:
+	eslint src/babel
 
 build:
 	mkdir -p dist
@@ -31,8 +35,10 @@ build:
 	node $(BROWSERIFY_CMD) -e lib/babel/polyfill.js >dist/polyfill.js
 	node $(UGLIFY_CMD) dist/polyfill.js >dist/polyfill.min.js
 
-	node $(BROWSERIFY_CMD) lib/babel/api/browser.js -s babel >dist/babel.js
-	node $(UGLIFY_CMD) dist/babel.js >dist/babel.min.js
+	node $(BROWSERIFY_CMD) lib/babel/api/browser.js -s babel $(BROWSERIFY_IGNORE) >dist/browser.js
+	node $(UGLIFY_CMD) dist/browser.js >dist/browser.min.js
+
+	node $(BROWSERIFY_CMD) lib/babel/api/node.js --node $(BROWSERIFY_IGNORE) >dist/node.js
 
 	node packages/babel-cli/bin/babel-external-helpers >dist/external-helpers.js
 	node $(UGLIFY_CMD) dist/external-helpers.js >dist/external-helpers.min.js
@@ -61,7 +67,7 @@ test-cov:
 test-parser:
 	node test/acorn/run.js
 
-test-travis: bootstrap build test
+test-travis: bootstrap lint build test
 
 test-browser:
 	mkdir -p dist
@@ -73,7 +79,7 @@ test-browser:
 
 	test -n "`which open`" && open test/browser.html
 
-publish:
+publish: lint
 	git pull --rebase
 
 	make test
@@ -83,8 +89,8 @@ publish:
 
 	make build
 
-	cp dist/babel.js browser.js
-	cp dist/babel.min.js browser.min.js
+	cp dist/browser.js browser.js
+	cp dist/browser.min.js browser.min.js
 
 	cp dist/polyfill.js browser-polyfill.js
 	cp dist/polyfill.min.js browser-polyfill.min.js
@@ -122,5 +128,4 @@ bootstrap:
 	npm link
 	cd packages/babel-cli && npm install && npm link && npm link babel-core
 	git submodule update --init
-	cd vendor/compat-table && npm install object-assign
 	make build

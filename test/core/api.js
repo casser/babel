@@ -8,17 +8,212 @@ var assert               = require("assert");
 var File                 = require("../../lib/babel/transformation/file");
 
 suite("api", function () {
-  test("{ code: false }", function () {
+  test("code option false", function () {
     var result = transform("foo('bar');", { code: false });
     assert.ok(!result.code);
   });
 
-  test("{ ast: false }", function () {
+  test("ast option false", function () {
     var result = transform("foo('bar');", { ast: false });
     assert.ok(!result.ast);
   });
 
-  suite("getModuleId() {} option", function () {
+  test("auxiliaryCommentBefore option", function () {
+    assert.ok(transform("class Foo {}", {
+      auxiliaryCommentBefore: "foobar"
+    }).code.indexOf("foobar") >= 0);
+
+    assert.ok(transform("for (let i in bar) { foo(function () { i; }); break; continue; }", {
+      auxiliaryCommentBefore: "foobar"
+    }).code.indexOf("foobar") >= 0);
+  });
+
+  test("auxiliaryCommentAfter option", function () {
+    assert.ok(transform("class Foo {}", {
+      auxiliaryCommentAfter: "foobar"
+    }).code.indexOf("foobar") >= 0);
+
+    assert.ok(transform("for (let i in bar) { foo(function () { i; }); break; continue; }", {
+      auxiliaryCommentAfter: "foobar"
+    }).code.indexOf("foobar") >= 0);
+  });
+
+  test("modules metadata", function () {
+    assert.deepEqual(transform('import { externalName as localName } from "external";').metadata.modules.imports[0], {
+      source: "external",
+      imported: ["externalName"],
+      specifiers: [{
+        kind: "named",
+        imported: "externalName",
+        local: "localName"
+      }]
+    });
+
+    assert.deepEqual(transform('import * as localName2 from "external";').metadata.modules.imports[0], {
+      source: "external",
+      imported: ["*"],
+      specifiers: [{
+        kind: "namespace",
+        local: "localName2"
+      }]
+    });
+
+    assert.deepEqual(transform('import localName3 from "external";').metadata.modules.imports[0], {
+      source: "external",
+      imported: ["default"],
+      specifiers: [{
+        kind: "named",
+        imported: "default",
+        local: "localName3"
+      }]
+    });
+
+    assert.deepEqual(transform('import localName from "./array";', {
+      resolveModuleSource: function() {
+        return 'override-source';
+      }
+    }).metadata.modules.imports, [
+      {
+        source: "override-source",
+        imported: ["default"],
+        specifiers: [
+          {
+            "kind": "named",
+            "imported": "default",
+            "local": "localName"
+          }
+        ]
+      }
+    ]);
+
+    assert.deepEqual(transform('export * as externalName1 from "external";', {
+      stage: 0
+    }).metadata.modules.exports, {
+      exported: ['externalName1'],
+      specifiers: [{
+        kind: "external-namespace",
+        exported: "externalName1",
+        source: "external",
+      }]
+    });
+
+    assert.deepEqual(transform('export externalName2 from "external";', {
+      stage: 0
+    }).metadata.modules.exports, {
+      exported: ["externalName2"],
+      specifiers: [{
+        kind: "external",
+        local: "externalName2",
+        exported: "externalName2",
+        source: "external"
+      }]
+    });
+
+    assert.deepEqual(transform('export function namedFunction() {}').metadata.modules.exports, {
+      exported: ["namedFunction"],
+      specifiers: [{
+        kind: "local",
+        local: "namedFunction",
+        exported: "namedFunction"
+      }]
+    });
+
+    assert.deepEqual(transform('export var foo = "bar";').metadata.modules.exports, {
+      "exported": ["foo"],
+      specifiers: [{
+        kind: "local",
+        local: "foo",
+        exported: "foo"
+      }]
+    });
+
+    assert.deepEqual(transform("export { localName as externalName3 };").metadata.modules.exports, {
+      exported: ["externalName3"],
+      specifiers: [{
+        kind: "local",
+        local: "localName",
+        exported: "externalName3"
+      }]
+    });
+
+    assert.deepEqual(transform('export { externalName4 } from "external";').metadata.modules.exports, {
+      exported: ["externalName4"],
+      specifiers: [{
+        kind: "external",
+        local: "externalName4",
+        exported: "externalName4",
+        source: "external"
+      }]
+    });
+
+    assert.deepEqual(transform('export * from "external";').metadata.modules.exports, {
+      exported: [],
+      specifiers: [{
+        kind: "external-all",
+        source: "external"
+      }]
+    });
+
+    assert.deepEqual(transform("export default function defaultFunction() {}").metadata.modules.exports, {
+      exported: ["defaultFunction"],
+      specifiers: [{
+        kind: "local",
+        local: "defaultFunction",
+        exported: "default"
+      }]
+    });
+  });
+
+  test("ignore option", function () {
+    assert.ok(transform("", {
+      ignore: "node_modules",
+      filename: "/foo/node_modules/bar"
+    }).ignored);
+
+    assert.ok(transform("", {
+      ignore: "foo/node_modules",
+      filename: "/foo/node_modules/bar"
+    }).ignored);
+
+    assert.ok(transform("", {
+      ignore: "foo/node_modules/*.bar",
+      filename: "/foo/node_modules/foo.bar"
+    }).ignored);
+  });
+
+  test("only option", function () {
+    assert.ok(!transform("", {
+      only: "node_modules",
+      filename: "/foo/node_modules/bar"
+    }).ignored);
+
+    assert.ok(!transform("", {
+      only: "foo/node_modules",
+      filename: "/foo/node_modules/bar"
+    }).ignored);
+
+    assert.ok(!transform("", {
+      only: "foo/node_modules/*.bar",
+      filename: "/foo/node_modules/foo.bar"
+    }).ignored);
+
+    assert.ok(transform("", {
+      only: "node_modules",
+      filename: "/foo/node_module/bar"
+    }).ignored);
+
+    assert.ok(transform("", {
+      only: "foo/node_modules",
+      filename: "/bar/node_modules/foo"
+    }).ignored);
+
+    assert.ok(transform("", {
+      only: "foo/node_modules/*.bar",
+      filename: "/foo/node_modules/bar.foo"
+    }).ignored);
+  });
+
+  suite("getModuleId option", function () {
     // As of this commit, `getModuleId` is the only option that isn't JSON
     // compatible which is why it's not inside /test/core/fixtures/transformation
 
@@ -35,7 +230,7 @@ suite("api", function () {
       assert.equal(result.code, expected);
     }
 
-    test("{ modules: \"amd\" }", function () {
+    test("amd", function () {
       var expected = [
         "define('foo/bar', ['exports'], function (exports) {",
         "  'use strict';",
@@ -47,7 +242,7 @@ suite("api", function () {
       getModuleNameTest("amd", expected);
     });
 
-    test("{ modules: \"umd\" }", function () {
+    test("umd", function () {
       var expected = [
         "(function (global, factory) {",
         "  if (typeof define === 'function' && define.amd) {",
@@ -71,14 +266,14 @@ suite("api", function () {
       getModuleNameTest("umd", expected);
     });
 
-    test("{ modules: \"system\" }", function () {
+    test("system", function () {
       var expected = [
         "System.register('foo/bar', [], function (_export) {",
+        "  'use strict';",
+        "",
         "  return {",
         "    setters: [],",
         "    execute: function () {",
-        "      'use strict';",
-        "",
         "      foo('bar');",
         "    }",
         "  };",
@@ -89,6 +284,47 @@ suite("api", function () {
     });
   });
 
+  suite("env option", function () {
+    var oldBabelEnv = process.env.BABEL_ENV;
+    var oldNodeEnv = process.env.NODE_ENV;
+
+    before(function () {
+      delete process.env.BABEL_ENV;
+      delete process.env.NODE_ENV;
+    });
+
+    after(function () {
+      process.env.BABEL_ENV = oldBabelEnv;
+      process.env.NODE_ENV = oldNodeEnv;
+    });
+
+    test("default", function () {
+      assert.equal(transform("foo;", {
+        env: {
+          development: { blacklist: "strict" }
+        }
+      }).code, "foo;");
+    });
+
+    test("BABEL_ENV", function () {
+      process.env.BABEL_ENV = "foo";
+      assert.equal(transform("foo;", {
+        env: {
+          foo: { blacklist: "strict" }
+        }
+      }).code, "foo;");
+    });
+
+    test("NODE_ENV", function () {
+      process.env.NODE_ENV = "foo";
+      assert.equal(transform("foo;", {
+        env: {
+          foo: { blacklist: "strict" }
+        }
+      }).code, "foo;");
+    });
+  });
+
   test("addHelper unknown", function () {
     var file = new File({}, transform.pipeline);
     assert.throws(function () {
@@ -96,7 +332,7 @@ suite("api", function () {
     }, /Unknown helper foob/);
   });
 
-  test("resolveModuleSource", function () {
+  test("resolveModuleSource option", function () {
     var actual = 'import foo from "foo-import-default";\nimport "foo-import-bare";\nexport { foo } from "foo-export-named";';
     var expected = 'import foo from "resolved/foo-import-default";\nimport "resolved/foo-import-bare";\nexport { foo } from "resolved/foo-export-named";';
 
@@ -157,15 +393,15 @@ suite("api", function () {
     test("not transformer", function () {
       assert.throws(function () {
         new PluginManager().validate("foobar", {});
-      }, /didn't export a Transformer instance/);
+      }, /didn't export a Plugin instance/);
 
       assert.throws(function () {
         new PluginManager().validate("foobar", "");
-      }, /didn't export a Transformer instance/);
+      }, /didn't export a Plugin instance/);
 
       assert.throws(function () {
         new PluginManager().validate("foobar", []);
-      }, /didn't export a Transformer instance/);
+      }, /didn't export a Plugin instance/);
     });
 
     test("object request");

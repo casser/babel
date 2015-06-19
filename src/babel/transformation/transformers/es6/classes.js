@@ -1,27 +1,26 @@
+import type NodePath from "../../../traversal/path";
+import type File from "../../file";
 import memoiseDecorators from "../../helpers/memoise-decorators";
 import ReplaceSupers from "../../helpers/replace-supers";
 import * as nameMethod from "../../helpers/name-method";
 import * as defineMap from "../../helpers/define-map";
 import * as messages from "../../../messages";
 import * as util from  "../../../util";
-import traverse from "../../../traversal";
-import each from "lodash/collection/each";
-import has from "lodash/object/has";
 import * as t from "../../../types";
 
 const PROPERTY_COLLISION_METHOD_NAME = "__initializeProperties";
 
-export var shouldVisit = t.isClass;
+export var visitor = {
+  ClassDeclaration(node) {
+    return t.variableDeclaration("let", [
+      t.variableDeclarator(node.id, t.toExpression(node))
+    ]);
+  },
 
-export function ClassDeclaration(node, parent, scope, file) {
-  return t.variableDeclaration("let", [
-    t.variableDeclarator(node.id, t.toExpression(node))
-  ]);
-}
-
-export function ClassExpression(node, parent, scope, file) {
-  return new ClassTransformer(this, file).run();
-}
+  ClassExpression(node, parent, scope, file) {
+    return new ClassTransformer(this, file).run();
+  }
+};
 
 var collectPropertyReferencesVisitor = {
   Identifier: {
@@ -37,23 +36,7 @@ var collectPropertyReferencesVisitor = {
   }
 };
 
-var constructorVisitor = traverse.explode({
-  ThisExpression: {
-    enter(node, parent, scope, ref) {
-      return ref;
-    }
-  },
-
-  Function: {
-    enter(node) {
-      if (!node.shadow) {
-        this.skip();
-      }
-    }
-  }
-});
-
-var verifyConstructorVisitor = traverse.explode({
+var verifyConstructorVisitor = {
   MethodDefinition: {
     enter() {
       this.skip();
@@ -98,7 +81,7 @@ var verifyConstructorVisitor = traverse.explode({
       }
     }
   }
-});
+};
 
 class ClassTransformer {
 
@@ -106,7 +89,7 @@ class ClassTransformer {
    * Description
    */
 
-  constructor(path: TraversalPath, file: File) {
+  constructor(path: NodePath, file: File) {
     this.parent = path.parent;
     this.scope  = path.scope;
     this.node   = path.node;
@@ -143,8 +126,6 @@ class ClassTransformer {
 
   run() {
     var superName = this.superName;
-    var className = this.className;
-    var classBody = this.node.body.body;
     var classRef  = this.classRef;
     var file      = this.file;
 
@@ -175,7 +156,7 @@ class ClassTransformer {
     if (this.hasSuper) {
       closureArgs.push(superName);
 
-      superName = this.scope.generateUidBasedOnNode(superName);
+      superName = this.scope.generateUidIdentifierBasedOnNode(superName);
       closureParams.push(superName);
 
       this.superName = superName;
@@ -221,6 +202,8 @@ class ClassTransformer {
       }
     }
 
+    body = body.concat(this.staticPropBody);
+
     if (this.className) {
       // named class with only a constructor
       if (body.length === 1) return t.toExpression(body[0]);
@@ -234,8 +217,6 @@ class ClassTransformer {
 
       t.inheritsComments(body[0], this.node);
     }
-
-    body = body.concat(this.staticPropBody);
 
     //
 
@@ -264,7 +245,7 @@ class ClassTransformer {
     var map = defineMap.push(mutatorMap, node, kind, this.file);
 
     if (enumerable) {
-      map.enumerable = t.literal(true)
+      map.enumerable = t.literal(true);
     }
 
     if (map.decorators) {
@@ -273,22 +254,42 @@ class ClassTransformer {
   }
 
   /**
+   * https://www.youtube.com/watch?v=fWNaR-rxAic
+   */
+
+  constructorMeMaybe() {
+    if (!this.hasSuper) return;
+
+    var hasConstructor = false;
+    var paths = this.path.get("body.body");
+
+    for (var path of (paths: Array)) {
+      hasConstructor = path.equals("kind", "constructor");
+      if (hasConstructor) break;
+    }
+
+    if (!hasConstructor) {
+      this.path.get("body").unshiftContainer("body", t.methodDefinition(
+        t.identifier("constructor"),
+        util.template("class-derived-default-constructor"),
+        "constructor"
+      ));
+    }
+  }
+
+  /**
    * Description
    */
 
   buildBody() {
+    this.constructorMeMaybe();
+
     var constructorBody = this.constructorBody;
-    var constructor     = this.constructor;
-    var className       = this.className;
-    var superName       = this.superName;
-    var classBody       = this.node.body.body;
+    var classBodyPaths  = this.path.get("body.body");
     var body            = this.body;
 
-    var classBodyPaths = this.path.get("body").get("body");
-
-    for (var i = 0; i < classBody.length; i++) {
-      var node = classBody[i];
-      var path = classBodyPaths[i];
+    for (var path of (classBodyPaths: Array)) {
+      var node = path.node;
 
       if (node.decorators) {
         memoiseDecorators(node.decorators, this.scope);
@@ -317,18 +318,8 @@ class ClassTransformer {
           this.pushMethod(node, path);
         }
       } else if (t.isClassProperty(node)) {
-        this.pushProperty(node);
+        this.pushProperty(node, path);
       }
-    }
-
-    // we have no constructor, but we're a derived class
-    if (!this.hasConstructor && this.hasSuper) {
-      var helperName = "class-super-constructor-call";
-      if (this.isLoose) helperName += "-loose";
-      constructorBody.body.push(util.template(helperName, {
-        CLASS_NAME: this.classRef,
-        SUPER_NAME: this.superName
-      }, true));
     }
 
     //
@@ -377,7 +368,7 @@ class ClassTransformer {
       }
 
       var lastNonNullIndex = 0;
-      for (var i = 0; i < args.length; i++) {
+      for (let i = 0; i < args.length; i++) {
         if (args[i] !== nullNode) lastNonNullIndex = i;
       }
       args = args.slice(0, lastNonNullIndex + 1);
@@ -452,7 +443,7 @@ class ClassTransformer {
    * Description
    */
 
-   verifyConstructor(path: TraversalPath) {
+   verifyConstructor(path: NodePath) {
     var state = {
       hasBareSuper: false,
       bareSuper:    null,
@@ -473,7 +464,7 @@ class ClassTransformer {
    * Push a method to its respective mutatorMap.
    */
 
-  pushMethod(node: { type: "MethodDefinition" }, path?: TraversalPath, allowedIllegal?) {
+  pushMethod(node: { type: "MethodDefinition" }, path?: NodePath, allowedIllegal?) {
     if (!allowedIllegal && t.isLiteral(t.toComputedKey(node), { value: PROPERTY_COLLISION_METHOD_NAME })) {
       throw this.file.errorWithNode(node, messages.get("illegalMethodName", PROPERTY_COLLISION_METHOD_NAME));
     }
@@ -481,7 +472,7 @@ class ClassTransformer {
     if (node.kind === "method") {
       nameMethod.property(node, this.file, path ? path.get("value").scope : this.scope);
 
-      if (this.isLoose) {
+      if (this.isLoose && !node.decorators) {
         // use assignments instead of define properties for loose classes
 
         var classRef = this.classRef;
@@ -502,10 +493,8 @@ class ClassTransformer {
    * Description
    */
 
-  pushProperty(node: { type: "ClassProperty" }) {
-    var key;
-
-    this.scope.traverse(node, collectPropertyReferencesVisitor, {
+  pushProperty(node: { type: "ClassProperty" }, path: NodePath) {
+    path.traverse(collectPropertyReferencesVisitor, {
       references: this.instancePropRefs,
       scope:      this.scope
     });
@@ -521,7 +510,6 @@ class ClassTransformer {
       this.pushToMap(node, true, "initializer");
 
       var initializers;
-      var body;
       var target;
       if (node.static) {
         initializers = this.staticInitializersId = this.staticInitializersId || this.scope.generateUidIdentifier("staticInitializers");
@@ -560,7 +548,7 @@ class ClassTransformer {
    * Replace the constructor body of our class.
    */
 
-  pushConstructor(method: { type: "MethodDefinition" }, path: TraversalPath) {
+  pushConstructor(method: { type: "MethodDefinition" }, path: NodePath) {
     // https://github.com/babel/babel/issues/1077
     var fnPath = path.get("value");
     if (fnPath.scope.hasOwnBinding(this.classRef.name)) {

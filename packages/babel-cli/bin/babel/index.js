@@ -35,7 +35,7 @@ each(options, function (option, key) {
   if (option.description) desc.push(option.description);
 
   commander.option(arg, desc.join(" "));
-})
+});
 
 commander.option("-x, --extensions [extensions]", "List of extensions to compile when a directory has been input [.es6,.js,.es,.jsx]");
 commander.option("-w, --watch", "Recompile files on changes");
@@ -51,7 +51,7 @@ commander.on("--help", function () {
     each(keys(obj).sort(), function (key) {
       if (key[0] === "_") return;
 
-      if (obj[key].optional) key = "[" + key + "]";
+      if (obj[key].metadata && obj[key].metadata.optional) key = "[" + key + "]";
 
       console.log("    - " + key);
     });
@@ -79,7 +79,9 @@ if (commander.extensions) {
 var errors = [];
 
 var filenames = commander.args.reduce(function (globbed, input) {
-  return globbed.concat(glob.sync(input));
+  var files = glob.sync(input);
+  if (!files.length) files = [input];
+  return globbed.concat(files);
 }, []);
 
 each(filenames, function (filename) {
@@ -116,11 +118,16 @@ if (errors.length) {
 var opts = exports.opts = {};
 
 each(options, function (opt, key) {
-  opts[key] = commander[key];
+  if (commander[key] !== undefined) {
+    opts[key] = commander[key];
+  }
 });
 
 opts.ignore = util.arrayify(opts.ignore, util.regexify);
-opts.only   = util.arrayify(opts.only, util.regexify);
+
+if (opts.only) {
+  opts.only = util.arrayify(opts.only, util.regexify);
+}
 
 var fn;
 

@@ -5,12 +5,12 @@
   var _again = true;
 
   _function: while (_again) {
+    var n = _x2;
     m = local1 = local2 = local3 = undefined;
 
     var g = function g() {};
 
     _again = false;
-    var n = _x2;
     var m = _arguments[1] === undefined ? getDefaultValue() : _arguments[1];
 
     // `m` should be `getDefaultValue()` after first pass
@@ -27,4 +27,4 @@
     _again = true;
     continue _function;
   }
-})(1000000, true) === "foo";
+})(1e6, true) === "foo";

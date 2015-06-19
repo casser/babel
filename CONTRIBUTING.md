@@ -1,3 +1,7 @@
+# NOTE: BEFORE OPENING AN ISSUE PLEASE SEE THE [README](https://github.com/babel/babel#readme).
+
+----
+
 <p align="center">
    <strong><a href="#setup">Setup</a></strong>
    |
@@ -8,6 +12,8 @@
    <strong><a href="#dependencies">Dependencies</a></strong>
    |
    <strong><a href="#code-standards">Code Standards</a></strong>
+   |
+   <strong><a href="#internals">Internals</a></strong>
 </p>
 
 ----
@@ -18,8 +24,10 @@ Contributions are always welcome, no matter how large or small. Before
 contributing, please read the
 [code of conduct](https://github.com/babel/babel/blob/master/CODE_OF_CONDUCT.md).
 
-
 ## Developing
+
+> Note: Babel moves fast. Only the latest release is guaranteed to build correctly.
+> Older releases are not officially supported. If you attempt to build them, do that at your own risk.
 
 #### Setup
 
@@ -78,7 +86,6 @@ your [`$PATH`](http://unix.stackexchange.com/questions/26047/how-to-correctly-ad
 * Develop your changes ensuring you're fetching updates from upstream often
 * Ensure the test are passing (`make test`)
 * Create new pull request explaining your proposed change or reference an issue in your commit message
-
 
 #### Dependencies
 
@@ -167,3 +174,6 @@ your [`$PATH`](http://unix.stackexchange.com/questions/26047/how-to-correctly-ad
  * **Declaration**
    * No unused variables
    * No pollution of global variables and prototypes
+
+#### Internals
+Please see [`/doc`](/doc) for internals documentation relevant to developing babel.
